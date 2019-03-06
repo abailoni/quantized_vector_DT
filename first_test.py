@@ -6,6 +6,4 @@ import torch.nn.functional as F
 
 print('hello world')
 
-print(np.random.rand())
-
 print(f'Does this device have CUDA? \n The answer is: {torch.cuda.is_available()}')
