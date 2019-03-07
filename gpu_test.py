@@ -6,14 +6,14 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
-# prepare the CIFAR10-dataset
+#prepare the CIFAR10-dataset
 
-# transform to tensor and normalize to mean and std 0.5
+#transform to tensor and normalize to mean and std 0.5
 transform = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-# load data
+#load data
 trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                         download=True, transform=transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
@@ -50,13 +50,11 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x = self.fc4(x)
         return x
-
 
 net = Net()
 
-# move net onto GPU
+#move net onto GPU
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 net.to(device)
 print('your device is:', device)
@@ -90,7 +88,8 @@ for epoch in range(3):  # loop over the dataset multiple times
 
 print('Finished Training')
 
-# evaluate on test set
+
+#evaluate on test set
 
 correct = 0
 total = 0
@@ -104,6 +103,6 @@ with torch.no_grad():
         correct += (predicted == labels).sum().item()
 
 print('Accuracy of the network on the 10000 test images: %d %%' % (
-        100 * correct / total))
+    100 * correct / total))
 
 print('successfully reached end of program')
