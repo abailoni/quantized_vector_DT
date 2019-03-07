@@ -1,0 +1,114 @@
+# Specify the names of the datasets
+dataset_names:
+  - A
+  - B
+  - C
+
+# Specify how the data needs to be sliced before feeding to the network.
+# We use a 3D sliding window over the dataset to extract patches, which
+# are then fed to the network as batches.
+slicing_config:
+  # Sliding window size
+  window_size:
+    A: [25, 478, 478]
+    B: [25, 478, 478]
+    C: [25, 478, 478]
+#    A: [25, 956, 956]
+#    B: [25, 956, 956]
+#    C: [25, 956, 956]
+  # Sliding window stride
+  stride:
+    A: [1, 222, 222]
+    B: [1, 222, 222]
+    C: [1, 222, 222]
+#    A: [1, 430, 430]
+#    B: [1, 430, 430]
+#    C: [1, 430, 430]
+  # Sliding window downsampling ratio. The actual image size along a
+  # dimension is the window_size divided by the downsampling ratio.
+  # Example:
+  #   window_size = [1, 512, 512], downsampling_ratio = [1, 2, 2] ==>
+  #   slice shape = [1, 256, 256]
+  downsampling_ratio:
+    A: [1, 1, 1]
+    B: [1, 1, 1]
+    C: [1, 1, 1]
+  # Reflect padding on the loaded volume. Follows numpy.pad semantics.
+  padding:
+    A: [[5, 0], [50, 50], [50, 50]]
+    B: [[5, 0], [50, 50], [50, 50]]
+    C: [[5, 0], [50, 50], [50, 50]]
+  # Data slice to iterate over.
+  data_slice:
+    A: '0:85, :, :'
+    B: '0:85, :, :'
+    C: '0:85, :, :'
+
+
+# Specify paths to volumes
+volume_config:
+  # Raw data
+  raw:
+    path:
+      A: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleA_train.h5'
+      B: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleB_train.h5'
+      C: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleC_train.h5'
+    path_in_h5_dataset:
+      A: 'raw'
+      B: 'raw'
+      C: 'raw'
+    ignore_slice_list:
+      B: [15, 16, 44, 45, 77]
+      C: [14, 74, 86]
+#      # with added padding (5)
+#      B: [20, 21, 49, 50, 82]
+#      C: [19, 79, 91]
+    # Optionally, we specify training precision
+    dtype: float32
+  GT:
+    dtype: int32
+    path:
+      A: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleA_train.h5'
+      B: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleB_train.h5'
+      C: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleC_train.h5'
+    path_in_h5_dataset: {A: 'segmentations/groundtruth_fixed', B: 'segmentations/groundtruth_fixed', C: 'segmentations/groundtruth_fixed'}
+
+
+offsets: [[-1, 0, 0], [0, -1, 0], [0, 0, -1], [-2, 0, 0], [0, -3, 0], [0, 0, -3], [-3, 0, 0],
+                    [0, -9, 0], [0, 0, -9], [-4, 0, 0], [0, -27, 0], [0, 0, -27]]
+
+# Configuration for the master dataset.
+master_config:
+  rejection_threshold: 0.5
+  # We might need order 0 interpolation if we have segmentation in there somewhere.
+  elastic_transform:
+    alpha: 2000.
+    sigma: 50.
+    order: 0
+  # we crop to get rid of the elastic augment reflection padding
+  # and the invalid affinities (that's why we have additional lower z crop)
+  crop_after_target:
+    crop_left: [5, 50, 50]
+    crop_right: [0, 50, 50]
+  affinities_on_gpu: False
+  random_slides: False
+#  shape_after_slide: [478, 478]
+  agglomeration_kwargs:
+    path: '/export/home/abailoni/learnedHC/plain_unstruct/pureDICE_wholeTrainingSet/postprocess/inferName_v100k_repAttrHC095_A/edge_data.h5'
+    prob_agglomeration: 1.
+    max_threshold: 0.45
+    min_threshold: 0.4
+    flip_probability: 0.05
+    number_of_threads: 8
+
+
+# Specify configuration for the loader
+loader_config:
+  # Number of processes to use for loading data. Set to (say) 10 if you wish to
+  # use 10 CPU cores, or to 0 if you wish to use the same process for training and
+  # data-loading (generally not recommended).
+  batch_size: 2
+  num_workers: 40
+  drop_last: True
+  pin_memory: True
+  shuffle: True
