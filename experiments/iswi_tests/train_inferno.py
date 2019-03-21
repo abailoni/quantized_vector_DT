@@ -29,19 +29,21 @@ N_DIRECTIONS = 8
 
 # unsq = transforms.Lambda(lambda x: torch.unsqueeze(x, 0))
 transpose = transforms.Lambda(lambda x: torch.transpose(x, 0, 1))
+squeeze = transforms.Lambda(lambda x: torch.squeeze(x, 1))
 trans = transforms.Compose([transforms.ToTensor(), transpose])
+trans2 = transforms.Compose([transforms.ToTensor(), squeeze])
 
 imageset_train = HDF5VolumeLoader(path='./train-volume.h5', path_in_h5_dataset='data',
                                   transforms=trans, **yaml2dict('config_train.yml')['slicing_config'])
-labelset_train = HDF5VolumeLoader(path='./dist_trans.h5', path_in_h5_dataset='data',
-                                  transforms=trans, **yaml2dict('config_train.yml')['slicing_config'])
+labelset_train = HDF5VolumeLoader(path='./stardistance.h5', path_in_h5_dataset='data',
+                                  transforms=trans2, **yaml2dict('config_train.yml')['slicing_config_truth'])
 trainset = Zip(imageset_train, labelset_train)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=BATCHSIZE,
                                           shuffle=True, num_workers=2)
 imageset_val = HDF5VolumeLoader(path='./val-volume.h5', path_in_h5_dataset='data',
                                 transforms=trans, **yaml2dict('config_val.yml')['slicing_config'])
-labelset_val = HDF5VolumeLoader(path='./dist_trans_val.h5', path_in_h5_dataset='data',
-                                transforms=trans, **yaml2dict('config_val.yml')['slicing_config'])
+labelset_val = HDF5VolumeLoader(path='./stardistance_val.h5', path_in_h5_dataset='data',
+                                transforms=trans2, **yaml2dict('config_val.yml')['slicing_config_truth'])
 trainset = Zip(imageset_val, labelset_val)
 valloader = torch.utils.data.DataLoader(trainset, batch_size=BATCHSIZE,
                                         shuffle=True, num_workers=2)
@@ -49,7 +51,7 @@ valloader = torch.utils.data.DataLoader(trainset, batch_size=BATCHSIZE,
 
 net = torch.nn.Sequential(
     ConvReLU2D(in_channels=1, out_channels=3, kernel_size=3),
-    UNet(in_channels=3, out_channels=1, dim=2, final_activation='ReLU')
+    UNet(in_channels=3, out_channels=N_DIRECTIONS, dim=2, final_activation='ReLU')
     )
 
 trainer = Trainer(net)
