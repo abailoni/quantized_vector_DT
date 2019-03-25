@@ -16,6 +16,7 @@ os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/constrained_mst"),
 os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/neuro-skunkworks"),
 os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/segmfriends"),
 os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/speedrun"),
+os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/embeddingutils"),
 os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/firelight"),
 # os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/hc_segmentation"),
 os.path.join(get_abailoni_hci_home_path(), "pyCharm_projects/neurofire"),]
