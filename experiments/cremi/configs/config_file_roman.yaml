@@ -1,0 +1,381 @@
+global:
+  tag_dim: &TagDim 6
+  tag_slice: &TagSlice "1:7"
+
+device: cuda
+
+loaders:
+  general:
+    slicing_config:
+    # Specify how the data needs to be sliced before feeding to the network.
+    # We use a 3D sliding window over the dataset to extract patches, which
+    # are then fed to the network as batches.
+      # Sliding window size
+      window_size: [32, 32, 32]
+      # Sliding window stride
+      stride: [1, 1, 1]
+      # Sliding window downsampling ratio. The actual image size along a
+      # dimension is the window_size divided by the downsampling ratio.
+      # Example:
+      #   window_size = [1, 512, 512], downsampling_ratio = [1, 2, 2] ==>
+      #   slice shape = [1, 256, 256]
+      downsampling_ratio: [1, 1, 1]
+      # Reflect padding on the loaded volume. Follows numpy.pad semantics.
+      padding: [[0, 0], [0, 0], [0, 0]]
+      # Data slice to iterate over.
+      data_slice: ':, :, :'
+
+    volume_config:
+    # Specify paths to volumes
+      # Raw data
+      raw:
+        path:
+          HR1: '/export/home/rremme/Datasets/SFPR/h5/HR1.h5'
+          HR4: '/export/home/rremme/Datasets/SFPR/h5/HR4.h5'
+          HR31: '/export/home/rremme/Datasets/SFPR/h5/HR31.h5'
+          HR32: '/export/home/rremme/Datasets/SFPR/h5/HR32.h5'
+          HR535: '/export/home/rremme/Datasets/SFPR/h5/HR535.h5'
+          HR538: '/export/home/rremme/Datasets/SFPR/h5/HR538.h5'
+          LR1: '/export/home/rremme/Datasets/SFPR/h5/LR1.h5'
+          LR4: '/export/home/rremme/Datasets/SFPR/h5/LR4.h5'
+          LR535: '/export/home/rremme/Datasets/SFPR/h5/LR535.h5'
+          LR538: '/export/home/rremme/Datasets/SFPR/h5/LR538.h5'
+        path_in_h5_dataset: 'raw'
+        transforms:
+          - Cast: float32
+      segmentation:
+        path:
+          HR1: '/export/home/rremme/Datasets/SFPR/h5/HR1.h5'
+          HR4: '/export/home/rremme/Datasets/SFPR/h5/HR4.h5'
+          HR31: '/export/home/rremme/Datasets/SFPR/h5/HR31.h5'
+          HR32: '/export/home/rremme/Datasets/SFPR/h5/HR32.h5'
+          HR535: '/export/home/rremme/Datasets/SFPR/h5/HR535.h5'
+          HR538: '/export/home/rremme/Datasets/SFPR/h5/HR538.h5'
+          LR1: '/export/home/rremme/Datasets/SFPR/h5/LR1.h5'
+          LR4: '/export/home/rremme/Datasets/SFPR/h5/LR4.h5'
+          LR535: '/export/home/rremme/Datasets/SFPR/h5/LR535.h5'
+          LR538: '/export/home/rremme/Datasets/SFPR/h5/LR538.h5'
+        path_in_h5_dataset: 'gt_seg'
+        transforms:
+          - NormalizeSegmentationLabels:
+              ignore_label: 0
+              dim: 3
+          - Cast: float32
+
+    loader_config:
+      drop_last: True
+      pin_memory: True
+      shuffle: True
+      batch_size: 12
+
+  train:
+    dataset_names:
+    - HR1
+    - HR31
+    #- LR1
+    #- LR535
+
+    master_config:
+    # Configuration for the master dataset.
+      rejection_threshold: 0.03 # -1.0
+      transforms:
+        - RandomPermute3D
+        - RandomFlip3D
+        - GeneratePCATags:
+            apply_to: [1]
+            operation_type: 'add end'
+        - GenerateSegmentationTags3D:
+            apply_to: [1]
+            operation_type: 'add end'
+            tag_types: ['symmetric_embedded_orientation']
+            ignore_label: 0
+
+    loader_config:
+      num_workers: 10
+
+  val:
+    dataset_names:
+      - HR4
+      - HR32
+      #- LR4
+      #- LR538
+
+    # for validation, use precomputed base sequences
+    volume_config:
+      raw:
+        path_to_slices_in_h5_dataset: 'base_sequence_32'
+      segmentation:
+        path_to_slices_in_h5_dataset: 'base_sequence_32'
+
+    master_config:
+      rejection_threshold: -1.0
+      transforms:
+        - GeneratePCATags:
+            apply_to: [1]
+            operation_type: 'add end'
+        - GenerateSegmentationTags3D:
+            apply_to: [1]
+            operation_type: 'add end'
+            tag_types: ['symmetric_embedded_orientation'] #['centroid_vector', 'segment_scale']
+            ignore_label: 0
+
+    loader_config:
+      num_workers: 10
+
+model:
+  embeddingutils.models.unet.IsotropicSuperhumanSNEMINet:
+    conv_type': ConvELU3D
+    in_channels: 1
+    fmaps: [80, 160, 320, 640, 1280]
+    out_channels: 16 #!Add [16, !Mul [2, 27]]
+    upsampling_mode: 'nearest'
+    scale_factor:
+      - [2, 2, 2]
+      - [2, 2, 2]
+      - [2, 2, 2]
+      - [2, 2, 2]
+    final_activation: null
+#      embeddingutils.models.submodules.NormalizeWholeTensor:
+#        std: 10
+#      Conv3D:
+#        in_channels: !Add [16, !Mul [2, 27]]
+#        out_channels: 16
+#        kernel_size: 1
+#      HierarchicalAffinityAveraging:
+#        log_images: True
+#        dim: 3
+#        levels: 2
+#        stride: 1
+#        softmax: False
+#        activation: 'Softplus'
+#        normalize: True
+#        ignore_n_first_channels: 1
+
+trainer:
+
+  max_epochs: 10000 # basically infinite
+  num_targets: 3
+
+  criterion:
+    losses:
+      fgbg:
+        weight: 0.01
+        SorensenDiceLoss:
+          channelwise: True
+
+      handcrafted_tags:
+        dim: *TagDim
+        weight: 10.0
+        HuberTagLoss:
+          delta: 0.03
+          ignore_label: 0
+
+      free_embedding:
+        weight: 10.0
+        LossSegmentwiseFreeTags:
+          loss_weights: [1.e-2, 1.e-5]
+          ignore_label: 0
+          push_distance_measure: 'mean_l1_norm'
+          push_loss_func: 'l1'
+          push_margin: 0.25
+          push_weighting: 'per_pixel'
+          pull_distance_measure: 'mean_l1_norm'
+          pull_loss_func: 'l1'
+          pull_margin: 0.00
+          pull_weighting: 'per_pixel'
+
+    sum_loss_kwargs:
+      grad_stats: ['norm', 'max', 'mean']
+      split_pred: False
+      split_target: False
+
+  metric:
+    evaluate_every: [25, 'iterations']
+    SegTags.metrics.inferno_metrics.SFRPMetric:
+      use_gt_semantics: True
+      coord_scales: 0.0
+
+  optimizer:
+    Adam:
+      lr: 1.0e-4
+      betas: [0.9, 0.999]
+
+  intervals:
+    save_every: [10000, 'epochs']
+    validate_every:
+      frequency : [500, 'iterations']
+      for_num_iterations: 10
+
+  tensorboard:
+    log_scalars_every: [1, 'iterations']
+    log_images_every: [500, 'iterations']
+    send_volume_at_z_indices: 'mid'
+    split_config_keys: True
+    log_anywhere: ['scalars']
+
+  callbacks:
+    gradients:
+      LogOutputGradients:
+        frequency: 1
+
+    essentials:
+      GradientClip:
+        clip_value: 1e-3
+
+    scheduling:
+      AutoLR:
+        monitor: 'validation_loss'
+        factor: 0.2
+        patience: '5000 iterations'
+        monitor_while: 'validating'
+        monitor_momentum: 0.9
+        cooldown_duration: '50000 iterations'
+        consider_improvement_with_respect_to: 'previous'
+        verbose: True
+
+firelight:
+  pred:
+    RowVisualizer:
+      input_mapping:
+        global: [B: 0]
+      visualizers:
+        - RiffleVisualizer:
+            visualizers:
+              # scale preds for FGBG and embedding independently
+              - StackVisualizer:
+                  stack_dim: 'C'
+                  equalize_visualization_shapes: False
+                  visualizers:
+                    - PredictionVisualizer:
+                        input: [C: '0']
+                        colorize_jointly: 'DHW'
+                    - PredictionVisualizer:
+                        input: [C: '1:']
+                        colorize_jointly: 'CDHW'
+              - ImageVisualizer:
+                  input: ['output_gradient', B: '0']
+                  colorize_jointly: 'CDHW'
+                  scaling_options:
+                    keep_centered: True
+                  cmap: 'seismic'
+            riffle_dim: 'C'
+
+#  affinities:
+#    RowVisualizer:
+#      input_mapping:
+#        global: [B: 0]
+#        affinities: ''
+#      visualizers:
+#        RiffleVisualizer:
+#          riffle_dim: 'C'
+#          colorize: True
+#          colorize_jointly: ['H', 'W', 'D', 'C']
+#          visualizers:
+#            - ImageVisualizer:
+#                colorize: False
+#                input: ['affinities_stage_0', pre: ['softplus', {normalize: {p: 1}}]]
+#            - ImageVisualizer:
+#                colorize: False
+#                input: ['affinities_stage_1', pre: ['softplus', {normalize: {p: 1}}]]
+
+  visualization_grid:
+    ImageGridVisualizer:
+      input_mapping:
+        global: [B: 0, D: ':']
+        input: ['inputs', index: 0]
+        segmentation: ['target', index: 0]
+        embedding: ['prediction', C: '1:']
+        handcrafted_tags: ['prediction', C: *TagSlice]
+
+      row_specs: ['H', 'S', 'C', 'V']
+      column_specs: ['W', 'D', 'B']
+      pad_value: [0, .1, .2]
+
+      upsampling_factor: 1
+
+      visualizers:
+
+        # visualize raw input
+        - InputVisualizer:
+            cmap: inferno
+
+        # visualize GT segmentation
+        - SegmentationVisualizer:
+            background_label: 0
+
+        # visualize predicted segmentation
+        - SegmentationVisualizer:
+            input: 'hdbscan_segmentation'
+            background_label: 0
+
+        # visualize semantic segmentation predictions
+        - PredictionVisualizer:
+            input: [C: '0', pre: 'sigmoid']
+            value_range: [0, 1]
+
+        # visualize predicted embeddings
+        - MaskedPcaVisualizer:
+            ignore_label: 0
+            n_components: 3
+
+        - PcaVisualizer:
+            input: ['prediction', C: '1:']
+            n_components: 6
+
+        # visualize hierarchical averaging
+#        - PcaVisualizer:
+#            joint_specs: ['S', 'D', 'H', 'W']
+#            n_components: 3
+#            input:
+#              StackVisualizer:
+#                stack_dim: 'S'
+#                visualizers:
+#                  - ImageVisualizer:
+#                      colorize: False
+#                      input: ['embedding_stage_0']
+#                  - ImageVisualizer:
+#                      colorize: False
+#                      input: ['embedding_stage_1']
+#                  - ImageVisualizer:
+#                      colorize: False
+#                      input: ['prediction', C: '1:']
+
+#        # same, but only the free ones
+#        - MaskedPcaVisualizer:
+#            input_mapping:
+#              embedding: ['prediction', C: '5:']
+#            ignore_label: 0
+#            n_components: 3
+#
+#        - PcaVisualizer:
+#            input: ['prediction', C: '5:']
+#            n_components: 3
+#
+         #Handcrafted Tags
+        - OverlayVisualizer:
+            visualizers:
+              - StackVisualizer:
+                  stack_dim: 'S'
+                  visualizers:
+                    - MaskVisualizer:
+                        input: 'segmentation'
+                        mask_label: 0
+                    - MaskVisualizer:
+                        input: 'segmentation'
+                        mask_label: 0
+                        opacity: 0.5
+              - StackVisualizer:
+                  stack_dim: 'S'
+                  colorize: True
+                  colorize_jointly: 'HWDS'
+                  cmap: 'Spectral'
+                  visualizers:
+                    # visualize ground-truth tags
+                    - ImageVisualizer:
+                        input: ['target', index: 2]
+                        colorize: False
+
+                    # visualize predicted tags
+                    - ImageVisualizer:
+                        input: 'handcrafted_tags'
+                        colorize: False
