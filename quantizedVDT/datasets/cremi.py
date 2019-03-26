@@ -82,6 +82,8 @@ class CremiDataset(ZipReject):
         assert self.affinity_config is not None
         transforms.add(affinity_config_to_transform(apply_to=[1], **self.affinity_config))
 
+        # TODO: add transfrom for directional DT
+
         # crop invalid affinity labels and elastic augment reflection padding assymetrically
         crop_config = self.master_config.get('crop_after_target', {})
         if crop_config:

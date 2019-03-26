@@ -1,3 +1,5 @@
+import quantizedVDT
+
 from speedrun import BaseExperiment, TensorboardMixin, InfernoMixin
 from speedrun.log_anywhere import register_logger, log_image, log_scalar
 from speedrun.py_utils import locate
@@ -26,6 +28,7 @@ from neurofire.criteria.loss_transforms import RemoveSegmentationFromTarget
 from neurofire.criteria.loss_transforms import InvertTarget
 
 from quantizedVDT.datasets.cremi import get_cremi_loader
+from quantizedVDT.utils.path_utils import get_source_dir
 
 
 class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
@@ -34,15 +37,17 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         # Privates
         self._device = None
         self._meta_config['exclude_attrs_from_save'] = ['data_loader', '_device']
-        if config is not None:  # TODO
+        if config is not None:
             self.read_config_file(config)
 
         self.DEFAULT_DISPATCH = 'train'
         self.auto_setup()
 
         register_logger(self, 'scalars')
-        self.set('global/offsets', self.get_default_offsets())
 
+        offsets = self.get_default_offsets()
+        self.set('global/offsets', offsets)
+        self.set('loaders/general/volume_config/segmentation/affinity_config/offsets', offsets)
 
 
     def get_default_offsets(self):
@@ -55,9 +60,24 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         model_config = self.get('model') if model_config is None else model_config
         model_class = list(model_config.keys())[0]
         model_config[model_class]['out_channels'] = len(self.get('global/offsets'))
+        self.set('model/{}/out_channels'.format(model_class), len(self.get('global/offsets')))
 
-        # self.build_final_activation(model_config)
+        self.build_final_activation(model_config)
         return super(BaseCremiExperiment, self).build_model(model_config) #parse_model(model_config)
+
+    def build_final_activation(self, model_config=None):
+        model_config = self.get('model') if model_config is None else model_config
+        model_class = list(model_config.keys())[0]
+
+
+        final_activation = model_config[model_class].pop('final_activation', None)
+        if final_activation is None:
+            return
+        final_activation = locate(
+                final_activation, ['torch.nn'])
+        model_config[model_class]['final_activation'] = \
+            final_activation()
+
 
     def inferno_build_criterion(self):
         print("Building criterion")
@@ -88,16 +108,16 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         self.set('trainer/metric/evaluate_every', frequency)
 
     def build_train_loader(self):
-        return get_cremi_loader(recursive_dict_update(self.get('loaders/general'), self.get('loaders/train')))
+        return get_cremi_loader(recursive_dict_update(self.get('loaders/train'), self.get('loaders/general')))
 
     def build_val_loader(self):
-        return get_cremi_loader(recursive_dict_update(self.get('loaders/general'), self.get('loaders/val')))
+        return get_cremi_loader(recursive_dict_update(self.get('loaders/val'), self.get('loaders/general')))
 
 
 if __name__ == '__main__':
     print(sys.argv[1])
-    config_path = 'config/speedrun/sfrp'
-    experiments_path = 'runs/sfrp/speedrun'
+    config_path = os.path.join(get_source_dir(), 'experiments/cremi/configs')
+    experiments_path = os.path.join(get_source_dir(), './runs/cremi/speedrun')
 
     sys.argv[1] = os.path.join(experiments_path, sys.argv[1])
     if '--inherit' in sys.argv:
