@@ -1,297 +1,142 @@
+import quantizedVDT
+
+from speedrun import BaseExperiment, TensorboardMixin, InfernoMixin
+from speedrun.log_anywhere import register_logger, log_image, log_scalar
+from speedrun.py_utils import locate
+
 import os
-import logging
-import argparse
-import yaml
-import json
-import sys
-from torch.nn.modules.loss import BCELoss
+import torch
+import torch.nn as nn
 
-import vigra
-
-NUM_WORKERS_PER_BATCH = 25
-z_window_slice_training = None
-
-
-from inferno.trainers.basic import Trainer
-from inferno.trainers.callbacks.logging.tensorboard import TensorboardLogger
-from inferno.trainers.callbacks.scheduling import AutoLR
-from inferno.utils.io_utils import yaml2dict
 from inferno.trainers.callbacks.essentials import SaveAtBestValidationScore
-# Import the different creiterions, we support.
-from inferno.extensions.criteria import SorensenDiceLoss
+from neurofire.criteria.loss_wrapper import LossWrapper
+from inferno.extensions.criteria.set_similarity_measures import SorensenDiceLoss
+from inferno.trainers.callbacks import Callback
 from inferno.io.transform.base import Compose
 
+from embeddingutils.loss import WeightedLoss, SumLoss
+from segmfriends.utils.config_utils import recursive_dict_update
+
+from shutil import copyfile
+import sys
+
+from inferno.extensions.layers.convolutional import ConvELU3D, Conv3D, BNReLUConv3D
 
 from neurofire.criteria.loss_wrapper import LossWrapper
-from neurofire.criteria.loss_transforms import MaskTransitionToIgnoreLabel, RemoveSegmentationFromTarget, InvertTarget
-from neurofire.models import get_model
-from neurofire.datasets.cremi.loaders import get_cremi_loaders
+from neurofire.criteria.loss_transforms import ApplyAndRemoveMask
+from neurofire.criteria.loss_transforms import RemoveSegmentationFromTarget
+from neurofire.criteria.loss_transforms import InvertTarget
 
-# FIXME:
-
-logging.basicConfig(format='[+][%(asctime)-15s][%(name)s %(levelname)s]'
-                           ' %(message)s',
-                    stream=sys.stdout,
-                    level=logging.INFO)
-logger = logging.getLogger(__name__)
+from quantizedVDT.datasets.cremi import get_cremi_loader
+from quantizedVDT.utils.path_utils import get_source_dir
 
 
-def set_up_training(project_directory,
-                    config,
-                    data_config,
-                    load_pretrained_model,
-                    dir_loaded_model=None):
-    VALIDATE_EVERY = ('never')
-    SAVE_EVERY = (500, 'iterations')
+class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
+    def __init__(self, experiment_directory=None, config=None):
+        super(BaseCremiExperiment, self).__init__(experiment_directory)
+        # Privates
+        self._device = None
+        self._meta_config['exclude_attrs_from_save'] = ['data_loader', '_device']
+        if config is not None:
+            self.read_config_file(config)
 
-    # Get model
-    if load_pretrained_model:
-        load_dir = project_directory if dir_loaded_model is None else dir_loaded_model
-        model = Trainer().load(from_directory=load_dir,
-                               filename='Weights/checkpoint.pytorch').model
-    else:
-        model_name = "UNet3D"
-        model_kwargs = config.get('pretrained_model_kwargs')
-        model = get_model(model_name)(**model_kwargs)
+        self.DEFAULT_DISPATCH = 'train'
+        self.auto_setup()
 
-    # Unstructed loss:
-    affinity_offsets = data_config['offsets']
+        register_logger(self, 'scalars')
+
+        offsets = self.get_default_offsets()
+        self.set('global/offsets', offsets)
+        self.set('loaders/general/volume_config/segmentation/affinity_config/offsets', offsets)
 
 
-    # FIXME: reduce no longer available
-    loss = SorensenDiceLoss()
+    def get_default_offsets(self):
+        return [[-1, 0, 0], [0, -1, 0], [0, 0, -1],
+                [-2, 0, 0], [0, -3, 0], [0, 0, -3],
+                [-3, 0, 0], [0, -9, 0], [0, 0, -9],
+                [-4, 0, 0], [0, -27, 0], [0, 0, -27]]
 
-    unstructured_loss = LossWrapper(criterion=loss,
-                                    transforms=Compose(MaskTransitionToIgnoreLabel(affinity_offsets),
-                                                       RemoveSegmentationFromTarget(),
-                                                       InvertTarget()))
+    def build_model(self, model_config=None):
+        model_config = self.get('model') if model_config is None else model_config
+        model_class = list(model_config.keys())[0]
+        model_config[model_class]['out_channels'] = len(self.get('global/offsets'))
+        self.set('model/{}/out_channels'.format(model_class), len(self.get('global/offsets')))
 
-    # Build trainer and validation metric
-    logger.info("Building trainer.")
-    smoothness = 0.95
+        self.build_final_activation(model_config)
+        return super(BaseCremiExperiment, self).build_model(model_config) #parse_model(model_config)
 
-
-    # ----------
-    # TRAINER:
-    # ----------
-    trainer = Trainer(model)
-    trainer.save_every(SAVE_EVERY, to_directory=os.path.join(project_directory, 'Weights'))
-    trainer.build_criterion(unstructured_loss)
-    trainer.build_optimizer(**config.get('training_optimizer_kwargs'))
-    trainer.evaluate_metric_every('never')
-    trainer.validate_every(VALIDATE_EVERY, for_num_iterations=2)
-    trainer.register_callback(SaveAtBestValidationScore(smoothness=smoothness, verbose=True))
-    trainer.register_callback(AutoLR(factor=1.,
-                                  patience='100 iterations',
-                                  monitor_while='validating',
-                                  monitor_momentum=smoothness,
-                                  consider_improvement_with_respect_to='previous'))
+    def build_final_activation(self, model_config=None):
+        model_config = self.get('model') if model_config is None else model_config
+        model_class = list(model_config.keys())[0]
 
 
-    # TODO: define metric
-    # trainer.build_metric(metric)
-
-    logger.info("Building logger.")
-    # Build logger
-    tensorboard = TensorboardLogger(log_scalars_every=(1, 'iteration'),
-                                    log_images_every=VALIDATE_EVERY).observe_states(
-        ['validation_input', 'validation_prediction, validation_target'],
-        observe_while='validating'
-    )
-
-    trainer.build_logger(tensorboard, log_directory=os.path.join(project_directory, 'Logs'))
-    return trainer
+        final_activation = model_config[model_class].pop('final_activation', None)
+        if final_activation is None:
+            return
+        final_activation = locate(
+                final_activation, ['torch.nn'])
+        model_config[model_class]['final_activation'] = \
+            final_activation()
 
 
-def load_checkpoint(project_directory):
-    logger.info("Trainer from checkpoint")
-    trainer = Trainer().load(from_directory=os.path.join(project_directory, "Weights"))
-    return trainer
+    def inferno_build_criterion(self):
+        print("Building criterion")
+        loss_config = self.get('trainer/criterion/losses')
 
+        criterion = SorensenDiceLoss()
+        loss_train = LossWrapper(criterion=criterion,
+                                 transforms=Compose(ApplyAndRemoveMask(), InvertTarget()))
+        loss_val = LossWrapper(criterion=criterion,
+                               transforms=Compose(RemoveSegmentationFromTarget(),
+                                                  ApplyAndRemoveMask(), InvertTarget()))
+        self._trainer.build_criterion(loss_train)
+        self._trainer.build_validation_criterion(loss_val)
 
-def training(project_directory,
-             train_configuration_file,
-             data_configuration_file,
-             validation_configuration_file,
-             max_training_iters=int(1e5),
-             from_checkpoint=False,
-             load_pretrained_model=False,
-             dir_loaded_model=None):
+    def inferno_build_metric(self):
+        metric_config = self.get('trainer/metric')
+        frequency = metric_config.pop('evaluate_every', (25, 'iterations'))
 
-    logger.info("Loading config from {}.".format(train_configuration_file))
-    config = yaml2dict(train_configuration_file)
+        self.trainer.evaluate_metric_every(frequency)
+        if metric_config:
+            assert len(metric_config) == 1
+            for class_name, kwargs in metric_config.items():
+                cls = locate(class_name)
+                kwargs['offsets'] = self.get('global/offsets')
+                print(f'Building metric of class "{cls.__name__}"')
+                metric = cls(**kwargs)
+                self.trainer.build_metric(metric)
+        self.set('trainer/metric/evaluate_every', frequency)
 
-    logger.info("Loading training data loader from %s." % data_configuration_file)
-    # TODO: adapt configs
-    train_loader = get_cremi_loaders(data_configuration_file)
-    data_config = yaml2dict(data_configuration_file)
+    def build_train_loader(self):
+        return get_cremi_loader(recursive_dict_update(self.get('loaders/train'), self.get('loaders/general')))
 
-    logger.info("Loading validation data loader from %s." % validation_configuration_file)
-    validation_loader = get_cremi_loaders(validation_configuration_file)
-
-    # load network and training progress from checkpoint
-    if from_checkpoint:
-        logger.info("Loading trainer from checkpoint...")
-        trainer = load_checkpoint(project_directory)
-    else:
-        trainer = set_up_training(project_directory,
-                                  config,
-                                  data_config,
-                                  load_pretrained_model,
-                                  dir_loaded_model=dir_loaded_model
-                                  )
-
-    trainer.set_max_num_iterations(max_training_iters)
-
-    # Bind loader
-    logger.info("Binding loaders to trainer.")
-    trainer.bind_loader('train', train_loader).bind_loader('validate', validation_loader)
-
-    # Set devices
-    if config.get('devices'):
-        logger.info("Using devices {}".format(config.get('devices')))
-        trainer.cuda(config.get('devices'))
-
-    # Go!
-    logger.info("Lift off!")
-    trainer.fit()
-
-
-def make_train_config(train_config_file, offsets, gpus, nb_threads, reload_model=False):
-    if not reload_model:
-        template = yaml2dict('./configs/trainer_config.yml')
-        template['model_kwargs']['out_channels'] = len(offsets)
-    else:
-        # Reload previous settings:
-        template = yaml2dict(train_config_file)
-    template['devices'] = gpus
-    with open(train_config_file, 'w') as f:
-        yaml.dump(template, f)
-
-
-def make_data_config(data_config_file, offsets, n_batches, max_nb_workers, reload_model=False):
-    if not reload_model:
-        template_path = './configs/loader_config_train_set.yml'
-        template = yaml2dict(template_path)
-        template['offsets'] = offsets
-    else:
-        # Reload previous settings:
-        template = yaml2dict(data_config_file)
-    template['loader_config']['batch_size'] = n_batches
-    num_workers = NUM_WORKERS_PER_BATCH * n_batches
-    template['loader_config']['num_workers'] = num_workers if num_workers < max_nb_workers else max_nb_workers
-
-    # Window size:
-    default_wind_size = template['slicing_config']['window_size']['A']
-    default_wind_size[0] = z_window_slice_training
-    for dataset in template['slicing_config']['window_size']:
-        template['slicing_config']['window_size'][dataset] = default_wind_size
-
-    with open(data_config_file, 'w') as f:
-        yaml.dump(template, f)
-
-
-def make_validation_config(validation_config_file, offsets, n_batches, max_nb_workers, reload_model=False):
-    if not reload_model:
-        template_path = './configs/loader_config_val_set.yml'
-        template = yaml2dict(template_path)
-        template['offsets'] = offsets
-    else:
-        # Reload previous settings:
-        template = yaml2dict(validation_config_file)
-    template['loader_config']['batch_size'] = n_batches
-    # num_workers = NUM_WORKERS_PER_BATCH * n_batches
-    # template['loader_config']['num_workers'] = num_workers if num_workers < max_nb_workers else max_nb_workers
-    template['loader_config']['num_workers'] = 3
-    with open(validation_config_file, 'w') as f:
-        yaml.dump(template, f)
-
-def make_postproc_config(postproc_config_file, nb_threads, reload_model=False):
-    if not reload_model:
-        template_path = './template_config/post_proc/post_proc_config.yml'
-        template = yaml2dict(template_path)
-    else:
-        # Reload previous settings:
-        template = yaml2dict(postproc_config_file)
-    template['nb_threads'] = nb_threads
-    with open(postproc_config_file, 'w') as f:
-        yaml.dump(template, f)
-
-
-def parse_offsets(offset_file):
-    assert os.path.exists(offset_file)
-    with open(offset_file, 'r') as f:
-        offsets = json.load(f)
-    return offsets
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('project_directory', type=str)
-    parser.add_argument('offset_file', type=str)
-    parser.add_argument('--gpus', nargs='+', default=[0], type=int)
-    parser.add_argument('--max_nb_workers', type=int, default=int(8))
-    parser.add_argument('--max_train_iters', type=int, default=int(1e5))
-    parser.add_argument('--nb_threads', default=int(8), type=int)
-    parser.add_argument('--load_model', default='False')
-    parser.add_argument('--dir_loaded_model', type=str)
-    parser.add_argument('--z_window_size_training', default=int(10), type=int)
-    parser.add_argument('--from_checkpoint', default='False')
-
-    # FIXME: get current directory
-    base_proj_dir = '/net/hciserver03/storage/abailoni/learnedHC/'
-
-
-
-    args = parser.parse_args()
-
-    # Set the proper project folder:
-    project_directory = os.path.join(base_proj_dir, args.project_directory)
-    if not os.path.exists(project_directory):
-        os.mkdir(project_directory)
-
-    # We still leave options for varying the offsets
-    # to be more flexible later variable
-    base_offs_dir = './experiments/offsets'
-    offset_file = os.path.join(base_offs_dir, args.offset_file)
-    offsets = parse_offsets(offset_file)
-
-    global z_window_slice_training
-    z_window_slice_training = args.z_window_size_training
-
-    max_nb_workers = args.max_nb_workers
-    nb_threads = args.nb_threads
-
-
-    # set the proper CUDA_VISIBLE_DEVICES env variables
-    gpus = list(args.gpus)
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
-    gpus = list(range(len(gpus)))
-
-    load_model = eval(args.load_model) or eval(args.from_checkpoint)
-    dir_loaded_model = args.dir_loaded_model
-
-
-    train_config = os.path.join(project_directory, 'train_config.yml')
-    make_train_config(train_config, offsets, gpus, nb_threads, reload_model=eval(args.from_checkpoint))
-
-    data_config = os.path.join(project_directory, 'data_config.yml')
-    make_data_config(data_config, offsets, len(gpus), max_nb_workers, reload_model=eval(args.from_checkpoint))
-
-    validation_config = os.path.join(project_directory, 'validation_config.yml')
-    make_validation_config(validation_config, offsets, len(gpus), max_nb_workers, reload_model=eval(args.from_checkpoint))
-
-
-
-    training(project_directory,
-             train_config,
-             data_config,
-             validation_config,
-             max_training_iters=args.max_train_iters,
-             from_checkpoint=eval(args.from_checkpoint),
-             load_pretrained_model=load_model,
-             dir_loaded_model=dir_loaded_model)
+    def build_val_loader(self):
+        return get_cremi_loader(recursive_dict_update(self.get('loaders/val'), self.get('loaders/general')))
 
 
 if __name__ == '__main__':
-    main()
+    print(sys.argv[1])
+    config_path = os.path.join(get_source_dir(), 'experiments/cremi/configs')
+    experiments_path = os.path.join(get_source_dir(), './runs/cremi/speedrun')
+
+    sys.argv[1] = os.path.join(experiments_path, sys.argv[1])
+    if '--inherit' in sys.argv:
+        i = sys.argv.index('--inherit') + 1
+        if sys.argv[i].endswith(('.yml', '.yaml')):
+            sys.argv[i] = os.path.join(config_path, sys.argv[i])
+        else:
+            sys.argv[i] = os.path.join(experiments_path, sys.argv[i])
+    if '--update' in sys.argv:
+        i = sys.argv.index('--update') + 1
+        sys.argv[i] = os.path.join(config_path, sys.argv[i])
+    i = 0
+    while True:
+        if f'--update{i}' in sys.argv:
+            ind = sys.argv.index(f'--update{i}') + 1
+            sys.argv[ind] = os.path.join(config_path, sys.argv[ind])
+            i += 1
+        else:
+            break
+    cls = BaseCremiExperiment
+    cls().run()
+

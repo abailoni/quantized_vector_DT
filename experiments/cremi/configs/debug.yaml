@@ -1,0 +1,20 @@
+loaders:
+  train:
+    slicing_config:
+      window_size:
+        A: [3, 344, 344]
+        B: [3, 344, 344]
+        C: [3, 344, 344]
+
+  val:
+    slicing_config:
+      window_size:
+        C: [3, 344, 344]
+
+trainer:
+  intervals:
+    save_every: [60, 'iterations']
+    validate_every:
+      frequency : [20, 'iterations']
+      for_num_iterations: 1
+
