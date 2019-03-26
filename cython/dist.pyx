@@ -38,3 +38,24 @@ def dist_1d(np.ndarray[unsigned int, ndim=1] arr):
             dist_count = 0
         dist_arr[i] = dist_count
     return dist_arr
+
+
+
+
+
+def get_top_left_distance(np.ndarray[unsigned int, ndim=2] arr):
+    """
+    get the distance to the next 1 in the top left direction
+    :param arr: 2d-arr (m, n)
+    :return: dist_arr: (m, n)
+    """
+    cdef int x, y
+    cdef np.ndarray[int, ndim=2] dist_arr = np.zeros_like(arr, dtype=np.int32)
+    dist_arr[0,:] = 0
+
+    for y in range(1, arr.shape[0]):
+        dist_arr[y, 1:] = dist_arr[y-1, :-1] + 1
+        for x in range(arr.shape[1]):
+            if arr[y, x] == 1:
+                dist_arr[y, x] = 0
+    return dist_arr
