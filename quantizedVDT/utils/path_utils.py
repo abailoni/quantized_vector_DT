@@ -40,5 +40,7 @@ def get_source_dir():
     hostname = socket.gethostname()
     if username == 'abailoni' or username == 'abailoni_local':
         return os.path.join(get_abailoni_hci_home_path(), 'pyCharm_projects/quantized_vector_DT')
+    elif username == 'claun':
+        return os.path.join('/export/home/claun/', 'PycharmProjects/quantized_vector_DT')
     else:
         raise NotImplementedError("Set up your source_dir path for more hard-coded fun!")
