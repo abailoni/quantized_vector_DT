@@ -89,7 +89,7 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         print("Building criterion")
         loss_config = self.get('trainer/criterion/losses')
 
-        criterion = SorensenDiceLoss()
+        criterion = nn.L1Loss()
         loss_train = LossWrapper(criterion=criterion,
                                  transforms=None)
         loss_val = LossWrapper(criterion=criterion,
