@@ -92,5 +92,5 @@ def distancetoaffinities(distance, offsets): #Work in Progress
 
 
 
-print('halt, stop!')
+#print('halt, stop!')
 
