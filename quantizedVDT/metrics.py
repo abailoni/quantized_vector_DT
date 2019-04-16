@@ -38,7 +38,7 @@ class ArandFromMWSDistances(ArandErrorFromMWS):
             k += 1
 
         while k < distances.shape[0]:
-            for i, xy_distance in self.default_distances:
+            for i, xy_distance in enumerate(self.default_distances):
                 affinities[i+k*4] = np.where(distances[k] <= xy_distance, 0, 1)
             k += 1
 
