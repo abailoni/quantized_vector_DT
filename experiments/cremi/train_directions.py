@@ -106,7 +106,7 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
             assert len(metric_config) == 1
             for class_name, kwargs in metric_config.items():
                 cls = locate(class_name)
-                kwargs['offsets'] = self.get('global/offsets')
+                #kwargs['offsets'] = self.get('global/offsets')
                 print(f'Building metric of class "{cls.__name__}"')
                 metric = cls(**kwargs)
                 self.trainer.build_metric(metric)
