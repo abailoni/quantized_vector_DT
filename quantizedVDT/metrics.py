@@ -26,7 +26,6 @@ class ArandFromMWSDistances(ArandErrorFromMWS):
                          **super_kwargs)
 
     def input_to_segmentation(self, distances):
-        # FIXME: Works for one batch only atm
         # input: Distances in N directions
         # TODO: turn distances into affinities
         # hardcoded that we have 4 affinities per direction
@@ -35,15 +34,15 @@ class ArandFromMWSDistances(ArandErrorFromMWS):
             k = 0
             if self.z_direction:
                 for i, z_distance in enumerate(self.default_z_distances):
-                    affinities[batchnum, i+k*4, :, :, :] = np.where(distances[batchnum, k] <= z_distance, 1, -1)
+                    affinities[batchnum, i+k*4, :, :, :] = np.where(distances[batchnum, k] <= z_distance, 1, 0)
                 k += 1
                 for i, z_distance in enumerate(self.default_z_distances):
-                    affinities[batchnum, i+k*4, :, :, :] = np.where(distances[batchnum, k] <= z_distance, 1, -1)
+                    affinities[batchnum, i+k*4, :, :, :] = np.where(distances[batchnum, k] <= z_distance, 1, 0)
                 k += 1
 
             while k < distances.shape[1]:
                 for i, xy_distance in enumerate(self.default_distances):
-                    affinities[batchnum, i+k*4] = np.where(distances[batchnum, k] <= xy_distance, 1, -1)
+                    affinities[batchnum, i+k*4] = np.where(distances[batchnum, k] <= xy_distance, 1, 0)
                 k += 1
 
 
