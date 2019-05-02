@@ -8,23 +8,64 @@ from stardist import star_dist
 class DirectionsToAffinities(Transform):  # not functional atm, do not use
 
     def __init__(self,  n_directions=8, z_direction=False):
-        raise NotImplementedError('remove this error if function is functional')
         super().__init__()
         self.n_directions = n_directions
-        self.default_distances = [1, 3, 9, 27]
-        self.default_z_distances = [1, 2, 3, 4]
+        self.default_distances = [1, 8]  # [1, 3, 9, 27]
+        self.default_z_distances = [1, 8]  # [1, 2, 3, 4]
         self.z_direction = z_direction
         self.offsets = []
         if self.z_direction:
-            self.offsets += [[-1, 0, 0], [-2, 0, 0], [-3, 0, 0], [-4, 0, 0]]
-            self.offsets += [[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0]]
+            self.offsets +=[[-1, 0, 0], [-3, 0, 0]]  # [[-1, 0, 0], [-2, 0, 0], [-3, 0, 0], [-4, 0, 0]]
+            self.offsets += [[1, 0, 0], [3, 0, 0]]  # [[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0]]
         for i in range(self.n_directions):
             angle = 2*np.pi/self.n_directions*i
             self.offsets += get_offset_locations(self.default_distances, angle)
 
-    def batch_function(self, tensors):
-        prediction, target = tensors
+    def volume_function(self, distances):
 
+        affinities = np.empty((4*distances.shape[0], *distances.shape[1:]))
+
+        k = 0
+        if self.z_direction:
+            for i, z_distance in enumerate(self.default_z_distances):
+                affinities[i + k * 4, :, :, :] = np.where(distances[k] < z_distance, 1, 0)
+            k += 1
+            for i, z_distance in enumerate(self.default_z_distances):
+                affinities[i + k * 4, :, :, :] = np.where(distances[k] < z_distance, 1, 0)
+            k += 1
+
+        while k < distances.shape[0]:
+            for i, xy_distance in enumerate(self.default_distances):
+                affinities[i + k * 4] = np.where(distances[k] < xy_distance, 1, 0)
+            k += 1
+        return affinities
+
+    def volume_function_beta(self, distances):
+        # will one day be a better way to compute the affinities and replace the current volume_function
+        """
+
+        :param distances: array of shape (number of directions, z, y, x)
+        :return: affinities: array of shape (number of offsets, z, y, x)
+        """
+        nr_distances = len(self.default_distances)
+
+        affinities = np.empty((nr_distances*distances.shape[0], *distances.shape[1:]))
+
+        k = 0
+        if self.z_direction:
+            for i, z_distance in enumerate(self.default_z_distances):
+                affinities[i + k * nr_distances, :, :, :] = sigmoid(z_distance, distances[k])
+            k += 1
+            for i, z_distance in enumerate(self.default_z_distances):
+                affinities[i + k * nr_distances, :, :, :] = sigmoid(z_distance, distances[k])
+            k += 1
+
+        while k < distances.shape[0]:
+            for i, xy_distance in enumerate(self.default_distances):
+                affinities[i + k * nr_distances] = sigmoid(xy_distance, distances[k])
+            k += 1
+
+        return affinities
 
 
 
@@ -92,5 +133,27 @@ def distancetoaffinities(distance, offsets): #Work in Progress
 
 
 
-#print('halt, stop!')
+def sigmoid(x, mean=1, width=None):
+    if width is None:
+        width = np.sqrt(mean)/2
+    return 1/(1+np.exp(-(x-mean)/width))
+
+
+def reorder_and_invert(affinities, offsets, number_of_attractive_channels, dist_per_dir=4):
+
+    nr_offsets = len(offsets)
+    assert affinities.shape[0] == nr_offsets  # nr of affinities should match nr of offsets
+    nr_directions = nr_offsets // dist_per_dir
+    assert nr_offsets == nr_directions*dist_per_dir
+
+    indexlist = [dist_per_dir*j+i for i in range(dist_per_dir) for j in range(nr_directions)]
+
+    affinities = affinities[indexlist]
+    offsets = [offsets[ind] for ind in indexlist]
+
+    affinities[:number_of_attractive_channels] *= -1
+    affinities[:number_of_attractive_channels] += 1
+
+    return affinities, offsets
+
 
