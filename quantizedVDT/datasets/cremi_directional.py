@@ -60,15 +60,18 @@ class CremiDataset(ZipReject):
         self.transforms = self.get_transforms()
 
     def get_transforms(self):
-        transforms = Compose(RandomFlip3D(),
-                             RandomRotate())
+        transforms = Compose()
+
+        if self.master_config.get('random_flip', False):
+            transforms.add(RandomFlip3D())
+            transforms.add(RandomRotate())
 
         # Elastic transforms can be skipped by
         # setting elastic_transform to false in the
         # yaml config file.
         if self.master_config.get('elastic_transform'):
             elastic_transform_config = self.master_config.get('elastic_transform')
-            if elastic_transform_config.get('apply'):
+            if elastic_transform_config.get('apply', False):
                 transforms.add(ElasticTransform(alpha=elastic_transform_config.get('alpha', 2000.),
                                                 sigma=elastic_transform_config.get('sigma', 50.),
                                                 order=elastic_transform_config.get('order', 0)))
