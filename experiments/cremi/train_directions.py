@@ -47,6 +47,8 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         self.auto_setup()
 
         register_logger(self, 'scalars')
+        register_logger(self, 'embedding')
+        register_logger(self, 'image')
 
         offsets = self.get_default_offsets()
         self.set('global/offsets', offsets)
@@ -79,10 +81,14 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         final_activation = model_config[model_class].pop('final_activation', None)
         if final_activation is None:
             return
-        final_activation = locate(
-                final_activation, ['torch.nn'])
+        if isinstance(final_activation, str):
+            final_activation = locate(
+                    final_activation, ['torch.nn'])
+            model_config[model_class]['final_activation'] = \
+                final_activation()
+            return
         model_config[model_class]['final_activation'] = \
-            final_activation()
+            final_activation
 
 
     def inferno_build_criterion(self):
@@ -107,6 +113,8 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
             for class_name, kwargs in metric_config.items():
                 cls = locate(class_name)
                 #kwargs['offsets'] = self.get('global/offsets')
+                #kwargs['z_direction'] = self.get(
+                #    'loaders/general/master_config/compute_directions/z_direction')
                 print(f'Building metric of class "{cls.__name__}"')
                 metric = cls(**kwargs)
                 self.trainer.build_metric(metric)
