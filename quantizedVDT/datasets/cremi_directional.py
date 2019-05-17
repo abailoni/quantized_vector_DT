@@ -94,6 +94,8 @@ class CremiDataset(ZipReject):
             transforms.add(LabelToDirections(n_directions=direction_config.get('n_directions'),
                                              compute_z=direction_config.get('z_direction')))
 
+        # TODO: add clipping transformation
+
         # crop invalid affinity labels and elastic augment reflection padding assymetrically
         crop_config = self.master_config.get('crop_after_target', {})
         if crop_config:
