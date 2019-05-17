@@ -5,18 +5,22 @@ from quantizedVDT.utils.affinitiy_utils import get_offset_locations
 from stardist import star_dist
 
 
-class DirectionsToAffinities(Transform):  # not functional atm, do not use
+class DirectionsToAffinities(Transform):  # TODO: Rework
 
-    def __init__(self,  n_directions=8, z_direction=False):
+    def __init__(self,  n_directions=8, z_direction=False,
+                 default_distances=[1, 3,  8, 12], default_z_distances=[1, 3, 8, 12]):
         super().__init__()
+
+        assert len(default_distances) == len(default_z_distances)
+
         self.n_directions = n_directions
-        self.default_distances = [1, 8]  # [1, 3, 9, 27]
-        self.default_z_distances = [1, 8]  # [1, 2, 3, 4]
+        self.default_distances = default_distances  # [1, 3, 9, 27]
+        self.default_z_distances = default_z_distances  # [1, 2, 3, 4]
         self.z_direction = z_direction
         self.offsets = []
         if self.z_direction:
-            self.offsets +=[[-1, 0, 0], [-3, 0, 0]]  # [[-1, 0, 0], [-2, 0, 0], [-3, 0, 0], [-4, 0, 0]]
-            self.offsets += [[1, 0, 0], [3, 0, 0]]  # [[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0]]
+            self.offsets += [[-d, 0, 0] for d in default_z_distances]
+            self.offsets += [[d, 0, 0] for d in default_z_distances]
         for i in range(self.n_directions):
             angle = 2*np.pi/self.n_directions*i
             self.offsets += get_offset_locations(self.default_distances, angle)
@@ -66,6 +70,17 @@ class DirectionsToAffinities(Transform):  # not functional atm, do not use
             k += 1
 
         return affinities
+
+
+class Clip(Transform):
+
+    def __init__(self, a_min=None, a_max=None):
+        super().__init__()
+        self.a_min = a_min
+        self.a_max = a_max
+
+    def volume_function(self, distances):
+        return np.clip(distances, a_min=self.a_min, a_max=self.a_max)
 
 
 
@@ -135,25 +150,11 @@ def distancetoaffinities(distance, offsets): #Work in Progress
 
 def sigmoid(x, mean=1, width=None):
     if width is None:
-        width = np.sqrt(mean)/2
-    return 1/(1+np.exp(-(x-mean)/width))
+        width = 1
+        #width = np.sqrt(mean)/2
+    return 1/(1+np.exp((mean-x)/width))
 
 
-def reorder_and_invert(affinities, offsets, number_of_attractive_channels, dist_per_dir=4):
 
-    nr_offsets = len(offsets)
-    assert affinities.shape[0] == nr_offsets  # nr of affinities should match nr of offsets
-    nr_directions = nr_offsets // dist_per_dir
-    assert nr_offsets == nr_directions*dist_per_dir
-
-    indexlist = [dist_per_dir*j+i for i in range(dist_per_dir) for j in range(nr_directions)]
-
-    affinities = affinities[indexlist]
-    offsets = [offsets[ind] for ind in indexlist]
-
-    affinities[:number_of_attractive_channels] *= -1
-    affinities[:number_of_attractive_channels] += 1
-
-    return affinities, offsets
 
 
