@@ -19,7 +19,35 @@ def reorder_and_invert(affinities, offsets, number_of_attractive_channels, dist_
     return affinities, offsets
 
 
+def give_index_of_new_order(nr_offsets, dist_per_dir=4):
+    """
+    If you have the affinities ordered in a way that those of same
+    direction are clustered together this indexlist allows for
+    easy reordering such that the same distances are clustered
+    :param nr_offsets: How many offsets are there
+    :param dist_per_dir: How many offsets are there in one particular direction
+    :return:
+    """
+    nr_directions = nr_offsets // dist_per_dir
+    assert nr_offsets == nr_directions * dist_per_dir
+
+    indexlist = [dist_per_dir * j + i for i in range(dist_per_dir) for j in range(nr_directions)]
+
+    return indexlist
+
+
 def exclude_some_short_edges(affinities, offsets, z_dir=True, sampling_factor=2, n_directions=8):
+    """
+    Warning: currently doesn`t work correctly if more than one offset per direction is to be considered
+
+    If you want to decrease the number of short offsets, this function removes 1-1/sampling_factor of short edges
+    :param affinities:
+    :param offsets:
+    :param z_dir:
+    :param sampling_factor:
+    :param n_directions:
+    :return:
+    """
     indexlist = []
     if z_dir:
         indexlist += [0, 1]
@@ -27,6 +55,8 @@ def exclude_some_short_edges(affinities, offsets, z_dir=True, sampling_factor=2,
         indexlist += [i for i in range(n_directions + 2, affinities.shape[0])]
     else:
         indexlist += [i for i in range(0, n_directions, sampling_factor)]
+        indexlist += [i for i in range(n_directions, affinities.shape[0])]
+
 
     return affinities[indexlist], [offsets[ind] for ind in indexlist]
 
