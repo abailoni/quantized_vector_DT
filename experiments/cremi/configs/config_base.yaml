@@ -78,7 +78,7 @@ loaders:
     slicing_config:
       # Sliding window size
       window_size:
-        A: &shape [3, 351, 351]
+        A: &shape [15, 351, 351]
         B: *shape
         C: *shape
       # Sliding window stride
@@ -181,8 +181,8 @@ trainer:
 
   metric:
     evaluate_every: 'never'
-    #neurofire.metrics.arand.ArandErrorFromMWS:
-    #  strides: null # [1,2,2]
+    neurofire.metrics.arand.ArandErrorFromMWS:
+      strides: null # [1,2,2]
 
   optimizer:
     Adam:
@@ -194,7 +194,7 @@ trainer:
     save_every: [1000, 'iterations']
     validate_every:
       frequency : [100, 'iterations']
-      for_num_iterations: 20
+      for_num_iterations: 10
 
   tensorboard:
     log_scalars_every: [1, 'iterations']
