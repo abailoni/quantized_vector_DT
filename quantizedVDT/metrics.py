@@ -10,9 +10,9 @@ from affogato.segmentation import compute_mws_segmentation
 class ArandFromMWSDistances(ArandErrorFromMWS):
 
     def __init__(self, n_directions=4, z_direction=False,
-                 strides=None, randomize_strides=False,
+                 strides=None, randomize_strides=False, multiply_by=None,
                  **super_kwargs):
-
+        self.multiply_by = multiply_by
         self.laststep = None
         self.n_directions = n_directions
         self.default_distances = [1, 2, 9, 11]
@@ -42,6 +42,9 @@ class ArandFromMWSDistances(ArandErrorFromMWS):
     def input_to_segmentation(self, distances):
         # input: Distances in N directions
         # hardcoded that we have 4 affinities per direction
+        if self.multiply_by is not None:
+            distances = distances*self.multiply_by
+
         affinities = np.empty((distances.shape[0], len(self.default_distances)*distances.shape[1], *distances.shape[2:]))
 
 
