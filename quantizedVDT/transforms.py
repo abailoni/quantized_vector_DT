@@ -83,6 +83,14 @@ class Clip(Transform):
         return np.clip(distances, a_min=self.a_min, a_max=self.a_max)
 
 
+class Multiply(Transform):
+
+    def __init__(self, factor, invert_factor=False):
+        super().__init__()
+        self.factor = 1/factor if invert_factor else factor
+
+    def volume_function(self, distances):
+        return distances/self.factor
 
 
 class LabelToDirections(Transform):
