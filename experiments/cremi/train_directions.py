@@ -150,6 +150,15 @@ if __name__ == '__main__':
             i += 1
         else:
             break
+    if '--load' in sys.argv:
+        i = sys.argv.index('--load') + 1
+        if sys.argv[i] == 'True':
+            sys.argv[i] = os.path.join(sys.argv[1], 'checkpoint.pytorch')
+        else:
+            sys.argv[i] = os.path.join(experiments_path, sys.argv[i], 'checkpoint.pytorch')
+        sys.argv[i-1] = '--config.model.embeddingutils.models.unet.UNet3D.loadfrom'
+
+
     cls = BaseCremiExperiment
     cls().run()
 

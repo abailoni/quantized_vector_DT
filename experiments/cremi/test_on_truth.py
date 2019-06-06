@@ -1,6 +1,7 @@
 from quantizedVDT.datasets.cremi_directional import get_cremi_loader
 from quantizedVDT.datasets.cremi import get_cremi_loader as get_label_loader
-from quantizedVDT.transforms import DirectionsToAffinities, reorder_and_invert
+from quantizedVDT.transforms import DirectionsToAffinities
+from quantizedVDT.utils.core import reorder_and_invert
 
 from segmfriends.utils.config_utils import recursive_dict_update
 
@@ -71,6 +72,15 @@ if __name__ == '__main__':
 #    groundtruth = labelloader.dataset[0][1]
 
     plt.switch_backend('Qt5Agg')
+
+    plt.imshow(data[0, 1])
+    plt.show()
+    pic = trainloader.dataset[0][0]
+    plt.imshow(pic[0, 1])
+    plt.show()
+
+    np.save('labels_0.npy', data[0])
+    np.save('image_0.npy', pic[0])
 
 
     n_d = 2  # number of distances per direction
