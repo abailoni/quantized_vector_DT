@@ -14,7 +14,7 @@ from neurofire.transform.affinities import affinity_config_to_transform
 from neurofire.transform.artifact_source import RejectNonZeroThreshold
 from neurofire.transform.volume import RandomSlide
 
-from quantizedVDT.transforms import LabelToDirections
+from quantizedVDT.transforms import LabelToDirections, Clip, Multiply
 
 
 class CremiDataset(ZipReject):
@@ -95,6 +95,13 @@ class CremiDataset(ZipReject):
                                              compute_z=direction_config.get('z_direction')))
 
         # TODO: add clipping transformation
+        if self.master_config.get('clip', False):
+            clipping_config = self.master_config.get('clip')
+            transforms.add(Clip(**clipping_config))
+
+        if self.master_config.get('multiply', False):
+            mult_config = self.master_config.get('multiply')
+            transforms.add(Multiply(**mult_config))
 
         # crop invalid affinity labels and elastic augment reflection padding assymetrically
         crop_config = self.master_config.get('crop_after_target', {})
