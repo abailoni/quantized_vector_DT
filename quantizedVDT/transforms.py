@@ -4,7 +4,8 @@ from inferno.io.transform import Transform
 from quantizedVDT.utils.affinitiy_utils import get_offset_locations
 from stardist import star_dist
 from keras.utils import to_categorical
-
+from numba import jit
+import torch
 
 # class QuantizeDirections(Transform):
 #
@@ -12,50 +13,87 @@ from keras.utils import to_categorical
 #         self.n_classes = n_classes
 
 
+
 class HomogenousQuantization(Transform):
 
-    def __init__(self, n_classes, max_distance):
+    def __init__(self, n_classes, max_distance, one_hot=True, apply_to=None):
         # make sure values don't exceed max_distance, otherwise error later
-        super().__init__()
+        super().__init__(apply_to=apply_to)
         self.n_classes = n_classes
         self.max_distance = max_distance
-        self.classsize = max_distance/(n_classes-1)
+        self.classsize = (max_distance-0.001)/(n_classes-1)  # -eps is needed so that largest class is populated
         self.classes = np.arange(n_classes-1, dtype=float)*self.classsize
+        self.one_hot = one_hot
 
-    def volume_function(self, distances):
-        classes = np.empty((self.n_classes*distances.shape[0], *distances.shape[1:]))
+    def batch_function(self, tensors):
+        prediction, distances = tensors
+
+        classes_shape = (self.n_classes*distances.shape[0], *distances.shape[1:])
         # we don't need the residual of the furthest class
         #residuals = np.empty(((self.n_classes-1)*distances.shape[0], *distances.shape[1:]))
 
         classidx = np.floor_divide(distances, self.classsize)
-        classes = np.moveaxis(to_categorical(classidx, num_classes=self.n_classes), -1, 1
-                              ).reshape(classes.shape, order='C')
+        # if self.one_hot:
+        ones = np.moveaxis(to_categorical(classidx, num_classes=self.n_classes), -1, 1
+                                  ).reshape(classes_shape, order='C')
+        # else:
+        classes = classidx
 
         residuals = (distances[None, :]-self.classes.reshape([self.n_classes-1]+[1]*len(distances.shape))
-                     ).reshape(((self.n_classes-1)*distances.shape[0], *distances.shape[1:]), order='C')
+                     ).reshape(((self.n_classes-1)*distances.shape[0], *distances.shape[1:]), order='C').astype(np.float32)
 
-        return np.concatenate((classes, residuals), axis=0)
+        # residuals = torch.tensor(residuals, dtype=torch.float32)
+        # prediction = torch.from_numpy(prediction)
+        # classes = torch.from_numpy(classes)
+
+        # return prediction, torch.cat((classes, residuals), dim=0)
+        return prediction, np.concatenate((classes, residuals, ones), axis=0)
+
+    def volume_function_jit(self, distances):
+        return quantizer(distances, self.n_classes, self.classsize, self.classes)
+
+
+@jit
+def quantizer(distances, n_classes, classsize, classlist):
+    classes = np.empty((n_classes*distances.shape[0], *distances.shape[1:]))
+    # we don't need the residual of the furthest class
+    #residuals = np.empty(((self.n_classes-1)*distances.shape[0], *distances.shape[1:]))
+
+    classidx = np.floor_divide(distances, classsize)
+    classes = np.moveaxis(to_categorical(classidx, num_classes=n_classes), -1, 1
+                          ).reshape(classes.shape, order='C')
+
+    residuals = (distances[None, :]-classlist.reshape([n_classes-1]+[1]*len(distances.shape))
+                 ).reshape(((n_classes-1)*distances.shape[0], *distances.shape[1:]), order='C')
+    return np.concatenate((classes, residuals), axis=0)
 
 
 class Reassemble(Transform):
 
-    def __init__(self, n_classes, max_distance):
+    def __init__(self, n_classes, max_distance, one_hot=True, apply_to=None):
         # make sure values don't exceed max_distance, otherwise error later
-        super().__init__()
+        super().__init__(apply_to=apply_to)
         self.n_classes = n_classes
         self.max_distance = max_distance
         self.classsize = max_distance/(n_classes-1)
         self.classes = np.arange(n_classes-1, dtype=float)*self.classsize
+        self.one_hot = one_hot
 
 
-    def volume_function(self, values):
-        distances_shape_0 = values.shape[0]//(self.n_classes+(self.n_classes-1))
-        classes = values[:self.n_classes*distances_shape_0]
-        residuals = np.zeros((self.n_classes*distances_shape_0, *values.shape[1:]))  # classes and residuals should now have the same shape
-        residuals[:-1*distances_shape_0] = values[self.n_classes*distances_shape_0:]
+    def tensor_function(self, values):
+        if self.one_hot:
+            distances_shape_0 = values.shape[0]//(self.n_classes+(self.n_classes-1))
+            classes = values[:self.n_classes*distances_shape_0]
+            residuals = np.zeros((self.n_classes*distances_shape_0, *values.shape[1:]))  # classes and residuals should now have the same shape
+            residuals[:-1*distances_shape_0] = values[self.n_classes*distances_shape_0:]
 
-        reshaped = classes.reshape([distances_shape_0, self.n_classes, *classes.shape[1:]])
-        classidx = np.argmax(reshaped, axis=1)
+
+            classidx = np.argmax(classes.reshape([distances_shape_0, self.n_classes, *classes.shape[1:]]), axis=1)
+        else:
+            distances_shape_0 = (values.shape[0])//self.n_classes
+            classidx = values[:distances_shape_0].astype(int)
+            residuals = np.zeros((self.n_classes*distances_shape_0, *values.shape[1:]))  # classes and residuals should now have the same shape
+            residuals[:-1*distances_shape_0] = values[distances_shape_0:]
 
         distance = np.empty_like(classidx, dtype=float)
 
@@ -65,10 +103,11 @@ class Reassemble(Transform):
         # classidx[i]*distances_shape_0 you reach the right block, after which you pick the right element using i[0].
 
         # This function needs to be made faster, either by using numpy-magic or with cython or similar. (jit?)
-        for i in np.ndindex(classidx.shape):
-            distance[i] = classidx[i]*self.classsize + \
-                           residuals[(i[0]+classidx[i]*distances_shape_0,)+i[1:]]
+        # for i in np.ndindex(classidx.shape):
+        #     distance[i] = classidx[i]*self.classsize + \
+        #                    residuals[(i[0]+classidx[i]*distances_shape_0,)+i[1:]]
 
+        distanceassembler(distance, classidx, residuals, self.classsize, distances_shape_0)
 
         # # Pseudocode for how to pick the value that matters from classindex
         # for i in np.ndindex(classidx.shape):
@@ -77,11 +116,20 @@ class Reassemble(Transform):
         return distance
 
 
+@jit
+def distanceassembler(distance, classidx, residuals, classsize, distances_shape_0):
+    for i in np.ndindex(classidx.shape):
+            distance[i] = classidx[i]*classsize + \
+                           residuals[(i[0]+classidx[i]*distances_shape_0,)+i[1:]]
+
+
+
+
 class DirectionsToAffinities(Transform):  # TODO: Rework
 
     def __init__(self,  n_directions=8, z_direction=False,
-                 default_distances=[1, 3,  8, 12], default_z_distances=[1, 3, 8, 12]):
-        super().__init__()
+                 default_distances=[1, 3,  8, 12], default_z_distances=[1, 3, 8, 12], apply_to=None):
+        super().__init__(apply_to=apply_to)
 
         assert len(default_distances) == len(default_z_distances)
 
@@ -146,8 +194,8 @@ class DirectionsToAffinities(Transform):  # TODO: Rework
 
 class Clip(Transform):
 
-    def __init__(self, a_min=None, a_max=None):
-        super().__init__()
+    def __init__(self, a_min=None, a_max=None, apply_to=None):
+        super().__init__(apply_to=apply_to)
         self.a_min = a_min
         self.a_max = a_max
 
@@ -157,17 +205,17 @@ class Clip(Transform):
 
 class Multiply(Transform):
 
-    def __init__(self, factor, invert_factor=False):
-        super().__init__()
+    def __init__(self, factor, invert_factor=False, apply_to=None):
+        super().__init__(apply_to=apply_to)
         self.factor = 1/factor if invert_factor else factor
 
     def volume_function(self, distances):
-        return distances/self.factor
+        return distances*self.factor
 
 
 class LabelToDirections(Transform):
-    def __init__(self, n_directions=8, compute_z=False, opencl_available=True):
-        super().__init__()
+    def __init__(self, n_directions=8, compute_z=False, opencl_available=True, apply_to=None):
+        super().__init__(apply_to=apply_to)
         self.n_directions = n_directions
         self.opencl_available = opencl_available
         self.compute_z = compute_z
