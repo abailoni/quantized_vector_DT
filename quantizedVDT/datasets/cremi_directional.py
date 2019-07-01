@@ -104,7 +104,7 @@ class CremiDataset(ZipReject):
             transforms.add(Multiply(**mult_config))
 
         # crop invalid affinity labels and elastic augment reflection padding assymetrically
-        crop_config = self.master_config.get('crop_after_target', {})
+        crop_config = self.master_config.get('crop_after_target', False)
         if crop_config:
             # One might need to crop after elastic transform to avoid edge artefacts of affinity
             # computation being warped into the FOV.
