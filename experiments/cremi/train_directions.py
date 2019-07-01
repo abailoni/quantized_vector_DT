@@ -28,7 +28,7 @@ from neurofire.criteria.loss_transforms import ApplyAndRemoveMask
 from neurofire.criteria.loss_transforms import RemoveSegmentationFromTarget
 from neurofire.criteria.loss_transforms import InvertTarget
 
-from quantizedVDT.datasets.cremi_directional import get_cremi_loader
+from quantizedVDT.datasets.new_cremi import get_cremi_loader
 from quantizedVDT.utils.path_utils import get_source_dir
 
 
@@ -50,23 +50,25 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         register_logger(self, 'embedding')
         register_logger(self, 'image')
 
-        offsets = self.get_default_offsets()
-        self.set('global/offsets', offsets)
-        self.set('loaders/general/volume_config/segmentation/affinity_config/offsets', offsets)
+#        offsets = self.get_default_offsets()
+#        self.set('global/offsets', offsets)
+#        self.set('loaders/general/volume_config/segmentation/affinity_config/offsets', offsets)
 
 
-    def get_default_offsets(self):
-        return [[-1, 0, 0], [0, -1, 0], [0, 0, -1],
-                [-2, 0, 0], [0, -3, 0], [0, 0, -3],
-                [-3, 0, 0], [0, -9, 0], [0, 0, -9],
-                [-4, 0, 0], [0, -27, 0], [0, 0, -27]]
+    # def get_default_offsets(self):
+    #     return [[-1, 0, 0], [0, -1, 0], [0, 0, -1],
+    #             [-2, 0, 0], [0, -3, 0], [0, 0, -3],
+    #             [-3, 0, 0], [0, -9, 0], [0, 0, -9],
+    #             [-4, 0, 0], [0, -27, 0], [0, 0, -27]]
+
 
     def build_model(self, model_config=None):
         model_config = self.get('model') if model_config is None else model_config
         model_class = list(model_config.keys())[0]
-        n_channels = self.get('loaders/general/master_config/compute_directions/n_directions')
-        if self.get('loaders/general/master_config/compute_directions/z_direction'):
-            n_channels += 2
+        # n_channels = self.get('loaders/general/master_config/compute_directions/n_directions')
+        # if self.get('loaders/general/master_config/compute_directions/z_direction'):
+        #     n_channels += 2
+        n_channels = 56  # TODO: put this in config file
         model_config[model_class]['out_channels'] = n_channels
         self.set('model/{}/out_channels'.format(model_class), n_channels)
 
