@@ -1,4 +1,5 @@
 import numpy as np
+from copy import deepcopy
 
 
 def reorder_and_invert(affinities, offsets, number_of_attractive_channels, dist_per_dir=4):
@@ -74,6 +75,18 @@ class Annotator():
             z = self.z_values[row, col]
             return f'x={x:.1f}, y={y:.1f}, z={z}'
         else:
-                return 'x=%1.4f, y=%1.4f' % (x, y)
+            return 'x=%1.4f, y=%1.4f' % (x, y)
 
 
+
+
+
+def recursive_dict_update(source, target):
+    target = deepcopy(target)
+    for key, value in source.items():
+        if isinstance(value, dict):
+            sub_target = target[key] if key in target else {}
+            target[key] = recursive_dict_update(source[key], sub_target)
+        else:
+            target[key] = source[key]
+    return target
