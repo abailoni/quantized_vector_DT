@@ -1,32 +1,48 @@
-import quantizedVDT
+import sys
+
+sys.path += [
+    '/net/hcihome/storage/claun/PycharmProjects/quantized_vector_DT/experiments/cremi',
+    '/export/home/claun/PycharmProjects/quantized_vector_DT',
+    '/export/home/claun/repositories/affogato',
+    '/export/home/claun/PycharmProjects/segmfriends',
+    '/export/home/claun/PycharmProjects/neurofire',
+    '/export/home/claun/PycharmProjects/speedrun',
+    '/export/home/claun/PycharmProjects/embeddingutils',
+    '/export/home/claun/PycharmProjects/inferno',
+    '/export/home/claun/PycharmProjects/firelight',
+    '/export/home/claun/PycharmProjects/uppsala_hackathon',
+]
+
+
+# import quantizedVDT
 
 from speedrun import BaseExperiment, TensorboardMixin, InfernoMixin
 from speedrun.log_anywhere import register_logger, log_image, log_scalar
 from speedrun.py_utils import locate
 
 import os
-import torch
-import torch.nn as nn
+# import torch
+# import torch.nn as nn
+# from torch.nn import Softmax
 
-from inferno.trainers.callbacks.essentials import SaveAtBestValidationScore
+# from inferno.trainers.callbacks.essentials import SaveAtBestValidationScore
+# from neurofire.criteria.loss_wrapper import LossWrapper
+# from inferno.extensions.criteria.set_similarity_measures import SorensenDiceLoss
+# from inferno.extensions.layers.convolutional import Conv3D
+# from inferno.trainers.callbacks import Callback
+# from inferno.io.transform.base import Compose
+
+# from embeddingutils.loss import WeightedLoss, SumLoss
+from quantizedVDT.utils.core import recursive_dict_update
+
+# from shutil import copyfile
+
+# from inferno.extensions.layers.convolutional import ConvELU3D, Conv3D, BNReLUConv3D
+
 from neurofire.criteria.loss_wrapper import LossWrapper
-from inferno.extensions.criteria.set_similarity_measures import SorensenDiceLoss
-from inferno.extensions.layers.convolutional import Conv3D
-from inferno.trainers.callbacks import Callback
-from inferno.io.transform.base import Compose
-
-from embeddingutils.loss import WeightedLoss, SumLoss
-from segmfriends.utils.config_utils import recursive_dict_update
-
-from shutil import copyfile
-import sys
-
-from inferno.extensions.layers.convolutional import ConvELU3D, Conv3D, BNReLUConv3D
-
-from neurofire.criteria.loss_wrapper import LossWrapper
-from neurofire.criteria.loss_transforms import ApplyAndRemoveMask
-from neurofire.criteria.loss_transforms import RemoveSegmentationFromTarget
-from neurofire.criteria.loss_transforms import InvertTarget
+# from neurofire.criteria.loss_transforms import ApplyAndRemoveMask
+# from neurofire.criteria.loss_transforms import RemoveSegmentationFromTarget
+# from neurofire.criteria.loss_transforms import InvertTarget
 
 from quantizedVDT.datasets.new_cremi import get_cremi_loader
 from quantizedVDT.utils.path_utils import get_source_dir
@@ -68,7 +84,7 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
         # n_channels = self.get('loaders/general/master_config/compute_directions/n_directions')
         # if self.get('loaders/general/master_config/compute_directions/z_direction'):
         #     n_channels += 2
-        n_channels = 56  # TODO: put this in config file
+        n_channels = self.get(f'model/{model_class}/out_channels')
         model_config[model_class]['out_channels'] = n_channels
         self.set('model/{}/out_channels'.format(model_class), n_channels)
 
@@ -132,7 +148,7 @@ class BaseCremiExperiment(BaseExperiment, InfernoMixin, TensorboardMixin):
 if __name__ == '__main__':
     print(sys.argv[1])
     config_path = os.path.join(get_source_dir(), 'experiments/cremi/configs')
-    experiments_path = os.path.join(get_source_dir(), './runs/cremi/speedrun')
+    experiments_path = os.path.join(get_source_dir(), 'runs/cremi/speedrun')
 
     sys.argv[1] = os.path.join(experiments_path, sys.argv[1])
     if '--inherit' in sys.argv:
