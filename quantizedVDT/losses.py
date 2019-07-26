@@ -2,6 +2,9 @@ import numpy as np
 import torch.nn as nn
 import torch
 from keras.utils import to_categorical
+from inferno.extensions.criteria import SorensenDiceLoss
+
+from speedrun.log_anywhere import log_scalar, log_image
 
 
 class MultiLoss(nn.Module):
@@ -41,12 +44,13 @@ class MultiLoss(nn.Module):
 
 class L1andCEloss(nn.Module):
 
-    def __init__(self, n_channels, n_directions):
+    def __init__(self, n_channels, n_directions, weights=[1., 1.]):
         super().__init__()
         self.n_channels = n_channels
         self.n_directions = n_directions
         self.l1 = nn.L1Loss()
         self.ce = nn.CrossEntropyLoss()
+        self.weights = weights
 
     def forward(self, prediction, target):
         one = prediction[:, :self.n_directions*self.n_channels].reshape(
@@ -70,14 +74,61 @@ class L1andCEloss(nn.Module):
         loss2 = self.l1(res_pred*mask, res_tar*mask)
 
         # print(loss1, loss2)
-        return loss1+loss2
+        return self.weight[0]*loss1+self.weight[1]*loss2
 
 
+class L1andSDloss(nn.Module):
 
-class MyL1(nn.L1Loss):
+    def __init__(self, n_channels, n_directions, weights=[1., 1.], log=True, exclude_borders=[0, 0, 0]):
+        """
 
-    def forward(self, input, target, mask):
-        super(nn.L1Loss).forward(input*mask, target*mask)
+        :param n_channels:
+        :param n_directions:
+        :param weights: First gives weight for Sorensen Dice loss, second gives L1-Loss
+        :param log:
+        """
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_directions = n_directions
+        self.l1 = nn.L1Loss()
+        self.sd = SorensenDiceLoss()
+        self.weights = weights
+        self.log = log
+        self.exclude_borders = exclude_borders
+
+
+    def forward(self, prediction, target):
+
+        # exclude the spatial borders of the volume due to lacking context for the network
+        # Not protected against 'bad' slicing
+        b = self.exclude_borders
+        prediction = prediction[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+        target = target[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+
+
+        one = prediction[:, :self.n_directions*self.n_channels].reshape(
+            (1, self.n_directions, self.n_channels, *prediction.shape[2:]))
+        one = one.permute(0, 2, 1, 3, 4, 5)
+        # label = target[:, :self.n_directions].long()
+        one_target = target[:, self.n_directions*self.n_channels:].reshape(
+            (1, self.n_directions, self.n_channels, *prediction.shape[2:]))
+        one_target = one_target.permute(0, 2, 1, 3, 4, 5)
+
+        loss1 = self.sd(one, one_target)
+
+        res_pred = prediction[:, self.n_directions * self.n_channels:]
+        res_tar = target[:, self.n_directions:self.n_directions * self.n_channels]
+        mask = target[:, self.n_directions * self.n_channels:-self.n_directions]
+
+        loss2 = self.l1(res_pred*mask, res_tar*mask)
+
+        if self.log:
+            log_scalar('SorensenDiceLoss', self.weights[0]*loss1)
+            log_scalar('L1Loss', self.weights[1]*loss2)
+
+        return self.weights[0]*loss1+self.weights[1]*loss2
+
+
 
 
 
