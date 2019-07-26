@@ -1,5 +1,5 @@
 shortcuts:
-  out_channels: &out_channels 56
+  out_channels: &out_channels 56 # (n_classes*2-1)*n_directions
   xy_directions: &n_directions 8
 
 device: cuda
@@ -23,7 +23,7 @@ loaders:
         artifact_source:
             min_masking_ratio: .5
             slicing_config:
-              window_size: [1, 243, 243]  #change x and y to window size
+              window_size: [1, 270, 270]  #change x and y to window size
               stride: [1, 128, 128]
               downsampling_ratio: [1, 1, 1]
             volume_config:
@@ -92,7 +92,7 @@ loaders:
       # use 10 CPU cores, or to 0 if you wish to use the same process for training and
       # data-loading (generally not recommended).
       batch_size: 1
-      num_workers: 1
+      num_workers: 6
       drop_last: True
       pin_memory: False
       shuffle: True
@@ -111,7 +111,7 @@ loaders:
     slicing_config:
       # Sliding window size
       window_size:
-        A: &shape [9, 243, 243]
+        A: &shape [3, 270, 270]
         B: *shape
         C: *shape
       # Sliding window stride
@@ -186,7 +186,7 @@ model:
   UNet3D:
     import_from: embeddingutils.models.unet
     conv_type': ConvELU3D
-    #loadfrom: '/export/home/claun/PycharmProjects/quantized_vector_DT/runs/cremi/speedrun/savetest_callback_copy/checkpoint.pytorch'
+#    loadfrom: '/export/home/claun/PycharmProjects/quantized_vector_DT/runs/cremi/speedrun/quantized_copy/checkpoint.pytorch'
     in_channels: 1
     fmaps: [80, 160, 320, 640] #[80, 160, 320, 640]
     out_channels: *out_channels
@@ -202,6 +202,12 @@ model:
       in_channels: *out_channels
       out_channels: *out_channels
       kernel_size: 3
+      activation: !Obj:PartialSoftmax
+        import_from: torch.nn
+        dim: -4
+        nclasses: 4
+        ndirs: *n_directions
+
 
 trainer:
   max_epochs: 10 # not basically infinite
@@ -211,14 +217,21 @@ trainer:
   criterion:
     # TODO: here you will be able to add the final losses (SoresenDice for affinities and L1 for DT)
     losses:
-      loss: !Obj:L1andCEloss
+#      loss: !Obj:L1andCEloss
+      loss: !Obj:L1andSDloss
         import_from: quantizedVDT.losses
         n_channels: 4
         n_directions: 8
+        weights: [1., 10.]
+        exclude_borders: [1, 32, 32]
 
 
   metric:
-    evaluate_every: 'never'
+    evaluate_every: 10
+    quantizedVDT.metrics.L1fromQuantized:
+      n_classes: 4
+      max_distance: 1.
+      n_distances: 8
 
   optimizer:
     Adam:
@@ -229,7 +242,7 @@ trainer:
   intervals:
     save_every: [1000, 'iterations']
     validate_every:
-      frequency: [1000, 'iterations']
+      frequency: [200, 'iterations']
       for_num_iterations: 10
 
   tensorboard:
