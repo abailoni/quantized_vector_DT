@@ -12,5 +12,3 @@ def get_offset_locations(offset_distances, angle):
     for dist in offset_distances:
         loc += [[0, int(round(1*dist*np.sin(angle))), int(round(dist*np.cos(angle)))]]
     return loc
-
-
