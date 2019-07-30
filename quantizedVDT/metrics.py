@@ -2,9 +2,17 @@ from neurofire.metrics.arand import ArandErrorFromMWS
 import numpy as np
 from quantizedVDT.utils.affinitiy_utils import get_offset_locations
 from speedrun.log_anywhere import log_embedding, log_image
-from quantizedVDT.transforms import DirectionsToAffinities
+from quantizedVDT.transforms import DirectionsToAffinities, Reassemble
 from quantizedVDT.utils.core import give_index_of_new_order
-from affogato.segmentation import compute_mws_segmentation
+# FIXME: fix dependency if needed
+try:
+    from affogato.segmentation import compute_mws_segmentation
+except:
+    pass
+from inferno.extensions.metrics.base import Metric
+import torch.nn
+from speedrun.log_anywhere import log_scalar, log_image
+
 
 
 class ArandFromMWSDistances(ArandErrorFromMWS):
@@ -61,3 +69,41 @@ class ArandFromMWSDistances(ArandErrorFromMWS):
                                         number_of_attractive_channels=self.number_of_attractive_channels,
                                         strides=self.strides,
                                         randomize_strides=self.randomize_strides)
+
+
+class L1fromQuantized(Metric):
+
+    def __init__(self, n_classes, max_distance, n_distances=8, log=True):
+        self.n_classes = n_classes
+        self.max_distance = max_distance
+        self.reassemble = Reassemble(n_classes, max_distance)
+        self.n_distances = n_distances
+        self.l1 = torch.nn.L1Loss()
+        self.log = log
+
+    def forward(self, prediction, target):
+
+        prediction = prediction.cpu().detach().numpy()
+        target = target.cpu().detach().numpy()
+
+        if len(prediction.shape) == 5:
+            prediction = prediction[0]  # Kills batches, fix when batchsize >1
+            target = target[0]
+
+        distances_pred = self.reassemble.tensor_function(prediction)
+
+        distances_target = self.reassemble.tensor_function(np.concatenate(
+            (target[self.n_classes*self.n_distances:],
+             target[self.n_distances:self.n_classes*self.n_distances])))
+
+        if self.log:
+            for i in range(distances_pred.shape[0]):
+                log_image(f'predicted_distances_dir_{i}', np.pad(distances_pred[i, :1], pad_width=1, mode='symmetric'))
+                log_image(f'target_distances_dir_{i}', np.pad(distances_target[i, :1], pad_width=1, mode='symmetric'))
+                # the padding is used to create three channels for a rgb-image
+
+
+        return np.mean(np.abs(distances_pred-distances_target))
+        # return self.l1.forward(distances_pred, distances_target)
+
+
