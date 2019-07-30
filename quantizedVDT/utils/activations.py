@@ -18,11 +18,11 @@ class PartialSoftmax(nn.Softmax):
     def forward(self, input):
         shape = input.shape
 
-        classes = input[:8*4].reshape(shape[0], self.ndirs, self.nclasses, *shape[2:])
+        classes = input[:, :8*4].reshape(shape[0], self.ndirs, self.nclasses, *shape[2:])
 
         super(PartialSoftmax, self).forward(classes)
 
-        input[:, self.ndirs*self.nclasses] = classes.reshape(shape[0], self.ndirs*self.nclasses, *shape[2:])
+        input[:, :self.ndirs*self.nclasses] = classes.reshape(shape[0], self.ndirs*self.nclasses, *shape[2:])
 
         return input
 
