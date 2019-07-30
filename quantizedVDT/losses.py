@@ -79,7 +79,7 @@ class L1andCEloss(nn.Module):
 
 class L1andSDloss(nn.Module):
 
-    def __init__(self, n_channels, n_directions, weights=[1., 1.], log=True, exclude_borders=[0, 0, 0]):
+    def __init__(self, n_channels, n_directions, weights=[1., 1.], log=True, exclude_borders=[0, 0, 0], max_dist=100):
         """
 
         :param n_channels:
@@ -95,15 +95,37 @@ class L1andSDloss(nn.Module):
         self.weights = weights
         self.log = log
         self.exclude_borders = exclude_borders
+        self.max_dist = max_dist
 
 
     def forward(self, prediction, target):
+        # shape of prediction: [batch, n_dir*n_channels*2, z, y, x]; e.g. [1, 64, 12, 324, 324]
 
         # exclude the spatial borders of the volume due to lacking context for the network
         # Not protected against 'bad' slicing
-        b = self.exclude_borders
-        prediction = prediction[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
-        target = target[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+        if type(self.exclude_borders) is list:
+            b = self.exclude_borders
+            prediction = prediction[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+            target = target[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+        if self.exclude_borders is 'auto':
+            mask_res = np.ones(prediction.shape[0], (self.n_channels-1)*self.n_directions, *prediction.shape[2:])
+            mask_class = np.ones(prediction.shape[0], self.n_directions*self.n_channels, *prediction.shape[2:])
+            for i in range(self.n_directions):
+                xoffset = -int(np.cos(i/self.n_directions*2*np.pi)*self.max_dist)
+                yoffset = -int(np.sin(i/self.n_directions*2*np.pi)*self.max_dist)
+                xslice = slice(None, xoffset-1) if xoffset < 0 else slice(xoffset+1, None)
+                yslice = slice(None, yoffset-1) if yoffset < 0 else slice(yoffset+1, None)
+                mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, yslice, xslice] = 0
+                mask_res[:, (self.n_channels-1)*i:
+                         (self.n_channels-1)*(i+1)] = 0
+            prediction[:, :self.n_channels*self.n_directions] *= mask_class
+            prediction[:, self.n_channels*self.n_directions:] *= mask_res
+
+            target[:, self.n_directions*self.n_channels:] *= mask_class
+            target[:, self.n_directions:self.n_directions*self.n_channels] *= mask_res
+            # target[:, :-self.n_directions] = target[:, :-self.n_directions]*mask
+
+
 
 
         one = prediction[:, :self.n_directions*self.n_channels].reshape(
