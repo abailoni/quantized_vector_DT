@@ -85,7 +85,7 @@ class Reassemble(Transform):
             distances_shape_0 = values.shape[0]//(self.n_classes+(self.n_classes-1))
             classes = values[:self.n_classes*distances_shape_0]
             residuals = np.zeros((self.n_classes*distances_shape_0, *values.shape[1:]))  # classes and residuals should now have the same shape
-            residuals[:-1*distances_shape_0] = values[self.n_classes*distances_shape_0:]
+            residuals[:-1*distances_shape_0] = values[self.n_classes*distances_shape_0:]*self.max_distance
 
 
             classidx = np.argmax(classes.reshape([distances_shape_0, self.n_classes, *classes.shape[1:]]), axis=1)
@@ -93,7 +93,7 @@ class Reassemble(Transform):
             distances_shape_0 = (values.shape[0])//self.n_classes
             classidx = values[:distances_shape_0].astype(int)
             residuals = np.zeros((self.n_classes*distances_shape_0, *values.shape[1:]))  # classes and residuals should now have the same shape
-            residuals[:-1*distances_shape_0] = values[distances_shape_0:]
+            residuals[:-1*distances_shape_0] = values[distances_shape_0:]*self.max_distance
 
         distance = np.empty_like(classidx, dtype=float)
 
@@ -192,6 +192,26 @@ class DirectionsToAffinities(Transform):  # TODO: Rework
         return affinities
 
 
+class Mask(Transform):
+
+    def __init__(self, n_dir, a_max, apply_to=None):
+        super().__init__(apply_to=apply_to)
+        self.n_dir = n_dir
+        self.a_max = a_max
+
+    def volume_function(self, distances):
+        mask = np.ones(distances.shape)
+        for i in range(self.n_dir):
+            xoffset = -int(np.cos(i / self.n_dir * 2 * np.pi) * self.a_max)
+            yoffset = -int(np.sin(i / self.n_dir * 2 * np.pi) * self.a_max)
+            xslice = slice(xoffset - 1, None) if xoffset < 0 else slice(None, xoffset + 1)
+            yslice = slice(yoffset - 1, None) if yoffset < 0 else slice(None, yoffset + 1)
+            mask[i, :, yslice, :] = 0
+            mask[i, :, :, xslice] = 0
+        mask = torch.Tensor(mask).cuda()
+        return distances*mask
+
+
 class Clip(Transform):
 
     def __init__(self, a_min=None, a_max=None, apply_to=None):
@@ -281,6 +301,8 @@ def sigmoid(x, mean=1, width=None):
         width = 1
         #width = np.sqrt(mean)/2
     return 1/(1+np.exp((mean-x)/width))
+
+
 
 
 
