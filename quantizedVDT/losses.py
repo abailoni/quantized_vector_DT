@@ -107,26 +107,28 @@ class L1andSDloss(nn.Module):
             b = self.exclude_borders
             prediction = prediction[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
             target = target[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
-        if self.exclude_borders is 'auto':
-            mask_res = np.ones(prediction.shape[0], (self.n_channels-1)*self.n_directions, *prediction.shape[2:])
-            mask_class = np.ones(prediction.shape[0], self.n_directions*self.n_channels, *prediction.shape[2:])
+        if self.exclude_borders == 'auto':
+            mask_res = np.ones((prediction.shape[0], (self.n_channels-1)*self.n_directions, *prediction.shape[2:]))
+            mask_class = np.ones((prediction.shape[0], self.n_directions*self.n_channels, *prediction.shape[2:]))
             for i in range(self.n_directions):
                 xoffset = -int(np.cos(i/self.n_directions*2*np.pi)*self.max_dist)
                 yoffset = -int(np.sin(i/self.n_directions*2*np.pi)*self.max_dist)
-                xslice = slice(None, xoffset-1) if xoffset < 0 else slice(xoffset+1, None)
-                yslice = slice(None, yoffset-1) if yoffset < 0 else slice(yoffset+1, None)
-                mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, yslice, xslice] = 0
+                xslice = slice(xoffset-1, None) if xoffset < 0 else slice(None, xoffset+1)
+                yslice = slice(yoffset-1, None) if yoffset < 0 else slice(None, yoffset+1)
+                mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, yslice, :] = 0
                 mask_res[:, (self.n_channels-1)*i:
-                         (self.n_channels-1)*(i+1)] = 0
+                         (self.n_channels-1)*(i+1), :, yslice, :] = 0
+                mask_res[:, (self.n_channels - 1) * i:
+                         (self.n_channels-1)*(i+1), :, :, xslice] = 0
+                mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, :, xslice] = 0
+            mask_class = torch.Tensor(mask_class).cuda()
+            mask_res = torch.Tensor(mask_res).cuda()
             prediction[:, :self.n_channels*self.n_directions] *= mask_class
             prediction[:, self.n_channels*self.n_directions:] *= mask_res
 
             target[:, self.n_directions*self.n_channels:] *= mask_class
             target[:, self.n_directions:self.n_directions*self.n_channels] *= mask_res
             # target[:, :-self.n_directions] = target[:, :-self.n_directions]*mask
-
-
-
 
         one = prediction[:, :self.n_directions*self.n_channels].reshape(
             (1, self.n_directions, self.n_channels, *prediction.shape[2:]))
@@ -147,14 +149,33 @@ class L1andSDloss(nn.Module):
         if self.log:
             log_scalar('SorensenDiceLoss', self.weights[0]*loss1)
             log_scalar('L1Loss', self.weights[1]*loss2)
+            # log_image('test', mask_res[0, :, :, :, :])
 
         return self.weights[0]*loss1+self.weights[1]*loss2
 
 
 
+class MaskedL1Loss(nn.L1Loss):
 
+    def __init__(self, n_dir, a_max):
+        super().__init__()
+        self.n_dir = n_dir
+        self.a_max = a_max
+        self.mask = None
 
+    def forward(self, input, target):
 
+        if self.mask is None:
+            mask = np.ones(input.shape)
+            for i in range(self.n_dir):
+                xoffset = -int(np.cos(i / self.n_dir * 2 * np.pi) * self.a_max)
+                yoffset = -int(np.sin(i / self.n_dir * 2 * np.pi) * self.a_max)
+                xslice = slice(xoffset - 1, None) if xoffset < 0 else slice(None, xoffset + 1)
+                yslice = slice(yoffset - 1, None) if yoffset < 0 else slice(None, yoffset + 1)
+                mask[:, i, :, yslice, :] = 0
+                mask[:, i, :, :, xslice] = 0
+            self.mask = torch.Tensor(mask).cuda()
+        return super().forward(input*self.mask, target*self.mask)
 
 
 
