@@ -1,0 +1,60 @@
+loaders:
+#  general:
+#    defect_augmentation_config:
+#      artifact_source:
+#        slicing_config:
+#          window_size: [1, 135, 135]
+#    loader_config:
+#      num_workers: 16
+#      shuffle: False
+#  train:
+#    slicing_config:
+#      window_size:
+#        A: &shape [3, 135, 135]  # maybe try [12, 324, 324]? old: [6, 486, 486]
+#        B: *shape
+#        C: *shape
+#
+#  val:
+#    slicing_config:
+#      window_size:
+#        C: *shape
+  infer:
+    name: B
+    volume_config:
+      path:
+        A: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleA_train.h5'
+        B: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleB_train.h5'
+        C: '/export/home/abailoni/datasets/cremi/SOA_affinities/sampleC_train.h5'
+      path_in_file:
+        A: 'raw'
+        B: 'raw'
+        C: 'raw'
+      dtype: float32
+      # Sliding window size
+      window_size:
+        A: &shape [12, 648, 648]
+        B: *shape
+        C: *shape
+      # Sliding window stride
+      stride:
+        A: [4, 128, 128]
+        B: [4, 128, 128]
+        C: [4, 128, 128]
+      # Data slice to iterate over.
+      data_slice:
+        A: ':1, :1, :1'
+        B: '20:32, 300:948, 300:948'
+        C: '74:75, :1, :1'
+    loader_config:
+      # Number of processes to use for loading data. Set to (say) 10 if you wish to
+      # use 10 CPU cores, or to 0 if you wish to use the same process for training and
+      # data-loading (generally not recommended).
+      batch_size: 1
+      num_workers: 16
+      pin_memory: False
+      shuffle: False
+
+
+model:
+  UNet3D:
+    loadfrom: '/export/home/claun/PycharmProjects/quantized_vector_DT/runs/cremi/speedrun/29_8_2_class_8_dir/best_checkpoint.pytorch'
