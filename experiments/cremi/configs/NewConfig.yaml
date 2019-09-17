@@ -1,6 +1,7 @@
 shortcuts:
-  out_channels: &out_channels 56 # (n_classes*2-1)*n_directions
+  out_channels: &out_channels 24 # (n_classes*2-1)*n_directions  60 or 28 or 56
   xy_directions: &n_directions 8
+  n_classes: &n_classes 2
 
 device: cuda
 
@@ -12,32 +13,33 @@ loaders:
           retain_mask: True # This keep a mask of the valid affinities (not involving the ignore-label)
           retain_segmentation: False # This keeps the label image in the inputs
           ignore_label: 0
+      rejection_threshold: 1.
 
     defect_augmentation_config:
-        p_missing_slice: 0.03
-        p_low_contrast: 0.03
-        p_deformed_slice: 0.03
-        p_artifact_source: 0.03
-        deformation_mode: 'compress'
-        deformation_strength: 16
-        artifact_source:
-            min_masking_ratio: .5
-            slicing_config:
-              window_size: [1, 270, 270]  #change x and y to window size
-              stride: [1, 128, 128]
-              downsampling_ratio: [1, 1, 1]
-            volume_config:
-              artifacts:
-                path: '/export/home/abailoni/datasets/cremi/constantin_data/sample_ABC_padded_20160501.defects.hdf'
-                path_in_h5_dataset: 'defect_sections/raw'
-                dtype: float32
-              alpha_mask:
-                path: '/export/home/abailoni/datasets/cremi/constantin_data/sample_ABC_padded_20160501.defects.hdf'
-                path_in_h5_dataset: 'defect_sections/mask'
-            master_config:
-              elastic_transform:
-                alpha: 2000.
-                sigma: 50.
+      p_missing_slice: 0.03
+      p_low_contrast: 0.03
+      p_deformed_slice: 0.03
+      p_artifact_source: 0.03
+      deformation_mode: 'compress'
+      deformation_strength: 16
+      artifact_source:
+        min_masking_ratio: .5
+        slicing_config:
+          window_size: [1, 270, 270]  #change x and y to window size
+          stride: [1, 128, 128]
+          downsampling_ratio: [1, 1, 1]
+        volume_config:
+          artifacts:
+            path: '/export/home/abailoni/datasets/cremi/constantin_data/sample_ABC_padded_20160501.defects.hdf'
+            path_in_h5_dataset: 'defect_sections/raw'
+            dtype: float32
+          alpha_mask:
+            path: '/export/home/abailoni/datasets/cremi/constantin_data/sample_ABC_padded_20160501.defects.hdf'
+            path_in_h5_dataset: 'defect_sections/mask'
+        master_config:
+          elastic_transform:
+            alpha: 2000.
+            sigma: 50.
 
     # Configuration for the master dataset.
     master_config:
@@ -49,7 +51,7 @@ loaders:
 
       - !Obj:Clip
         import_from: quantizedVDT.transforms
-        a_max: &a_max 100
+        a_max: &a_max 40
         apply_to: [1]
 
 
@@ -61,30 +63,30 @@ loaders:
 
       - !Obj:HomogenousQuantization
         import_from: quantizedVDT.transforms
-        n_classes: 4
+        n_classes: *n_classes
         max_distance: 1
         one_hot: False
 
     #      elastic_transform:
-#        apply: False
-#        alpha: 2000.
-#        sigma: 50.
-#        order: 0
-#      random_slides: False
-#      shape_after_slide: [243, 243]   #change to x, y of window size
-#
-#      random_flip: False
-#
-#      compute_directions:
-#        n_directions: *n_directions
-#        z_direction:  &z_direction False
-#
-#      clip:
-#        a_max: &a_max 100
-#
-#      multiply:
-#        factor: *a_max
-#        invert_factor: True
+    #        apply: False
+    #        alpha: 2000.
+    #        sigma: 50.
+    #        order: 0
+    #      random_slides: False
+    #      shape_after_slide: [243, 243]   #change to x, y of window size
+    #
+    #      random_flip: False
+    #
+    #      compute_directions:
+    #        n_directions: *n_directions
+    #        z_direction:  &z_direction False
+    #
+    #      clip:
+    #        a_max: &a_max 100
+    #
+    #      multiply:
+    #        factor: *a_max
+    #        invert_factor: True
 
     # Specify configuration for the loader
     loader_config:
@@ -92,7 +94,7 @@ loaders:
       # use 10 CPU cores, or to 0 if you wish to use the same process for training and
       # data-loading (generally not recommended).
       batch_size: 1
-      num_workers: 6
+      num_workers: 32
       drop_last: True
       pin_memory: False
       shuffle: True
@@ -111,7 +113,7 @@ loaders:
     slicing_config:
       # Sliding window size
       window_size:
-        A: &shape [3, 270, 270]
+        A: &shape [6, 270, 270]
         B: *shape
         C: *shape
       # Sliding window stride
@@ -186,7 +188,7 @@ model:
   UNet3D:
     import_from: embeddingutils.models.unet
     conv_type': ConvELU3D
-#    loadfrom: '/export/home/claun/PycharmProjects/quantized_vector_DT/runs/cremi/speedrun/quantized_copy/checkpoint.pytorch'
+#    loadfrom: '/export/home/claun/PycharmProjects/quantized_vector_DT/runs/cremi/speedrun/22_8_noquant_4_dir/checkpoint.pytorch'
     in_channels: 1
     fmaps: [80, 160, 320, 640] #[80, 160, 320, 640]
     out_channels: *out_channels
@@ -203,35 +205,36 @@ model:
       out_channels: *out_channels
       kernel_size: 3
       activation: !Obj:PartialSoftmax
-        import_from: torch.nn
+        import_from: quantizedVDT.utils.activations
         dim: -4
-        nclasses: 4
+        nclasses: *n_classes
         ndirs: *n_directions
 
 
 trainer:
-  max_epochs: 10 # not basically infinite
-#  TODO: increase this if we need both affinity targets and directional DT targets
+  max_epochs: 1000 # not basically infinite
+  #  TODO: increase this if we need both affinity targets and directional DT targets
   num_targets: 1
 
   criterion:
     # TODO: here you will be able to add the final losses (SoresenDice for affinities and L1 for DT)
     losses:
-#      loss: !Obj:L1andCEloss
+      #      loss: !Obj:L1andCEloss
       loss: !Obj:L1andSDloss
         import_from: quantizedVDT.losses
-        n_channels: 4
-        n_directions: 8
-        weights: [1., 10.]
-        exclude_borders: [1, 32, 32]
+        n_channels: *n_classes
+        n_directions: *n_directions
+        weights: [1., 50.]
+        exclude_borders: auto # give either [z, y, x]-tupel of border thickness or 'auto' keyword
+        max_dist: *a_max
 
 
   metric:
     evaluate_every: 10
     quantizedVDT.metrics.L1fromQuantized:
-      n_classes: 4
-      max_distance: 1.
-      n_distances: 8
+      n_classes: *n_classes
+      max_distance: *a_max
+      n_distances: *n_directions
 
   optimizer:
     Adam:
@@ -252,18 +255,18 @@ trainer:
 
 
   callbacks:
-#    gradients:
-#      LogOutputGradients:
-#        frequency: 1
-#    quantizedVDT.callbacks:
-#      SaveModelCallback:
-#        save_every: 10
+    #    gradients:
+    #      LogOutputGradients:
+    #        frequency: 1
+    #    quantizedVDT.callbacks:
+    #      SaveModelCallback:
+    #        save_every: 10
     essentials:
       SaveAtBestValidationScore:
         smoothness: 0
         verbose: True
-#      GradientClip:
-#        clip_value: 1e-3
+    #      GradientClip:
+    #        clip_value: 1e-3
 
     scheduling:
       AutoLR:
@@ -272,7 +275,7 @@ trainer:
         patience: '100 iterations'
         monitor_while: 'validating'
         monitor_momentum: 0.75
-#        cooldown_duration: '50000 iterations'
+        #        cooldown_duration: '50000 iterations'
         consider_improvement_with_respect_to: 'previous'
         verbose: True
 
@@ -304,3 +307,176 @@ trainer:
 #        - IdentityVisualizer:
 #            input: 'target'
 #            cmap: gray
+
+
+
+# B: Batch, C: Channel, D: Depth (z-dim), W: width (x-dim), H: Height (y-dim), V: visualizers
+
+firelight:
+#  stackedModels:
+#    ImageGridVisualizer:
+#      input_mapping:
+#        global: [B: 0, D: 1] # the mapping specified in 'global' is applied to all keys
+#
+#      pad_width: 1  # width of the border between images in pixels
+#
+#      pad_value: .2  # intensity of the border pixels
+#
+#      upsampling_factor: 1  # the whole grid is upsampled by this factor
+#
+#      row_specs: ['H', 'S', 'D']
+#
+#      column_specs: ['W', 'C', 'B', 'V']
+#
+#      # Container visualizers always have the 'visualizers' argument. Its value has to be a list of visualizers
+#
+#      visualizers:
+#
+#        #        # visualize raw input
+#
+##        - SegmentationVisualizer:
+##
+##            input: ['target', C: 0, W: "::3", H: "::3", D: "3:-3"]
+##
+##            background_label: 0
+#
+#        #        - IdentityVisualizer:
+#
+#        #            input: ['prediction', index: 0, B: 0, D: "1:6", C: 0]
+#
+#        #            cmap: gray
+#        - IdentityVisualizer:
+#            input: ['res_pred', C: ":"]
+#            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+#
+#        - IdentityVisualizer:
+#            input: ['res_pred_masked', C: ":"]
+#            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+#
+#        - IdentityVisualizer:
+#            input: ['mask_quant', C: ":"]
+#            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+#
+#            cmap: gray
+#        - IdentityVisualizer:
+#
+#            input: ['classes', C: ":4"]
+#            cmap: gray
+
+
+  distances:
+    ImageGridVisualizer:
+      input_mapping:
+        global: [B: 0, D: 1] # the mapping specified in 'global' is applied to all keys
+
+      pad_width: 1  # width of the border between images in pixels
+
+      pad_value: .2  # intensity of the border pixels
+
+      upsampling_factor: 1  # the whole grid is upsampled by this factor
+
+      row_specs: ['H', 'S', 'D', 'V']
+
+      column_specs: ['W', 'C', 'B']
+
+      # Container visualizers always have the 'visualizers' argument. Its value has to be a list of visualizers
+
+      visualizers:
+
+        - IdentityVisualizer:
+            input: ['distances_pred', C: ":"]
+            value_range: [0, *a_max] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+        - IdentityVisualizer:
+            input: ['distances_tar', C: ":"]
+            value_range: [0, *a_max] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+
+  residuals:
+    ImageGridVisualizer:
+      input_mapping:
+        global: [B: 0, D: 1] # the mapping specified in 'global' is applied to all keys
+
+      pad_width: 1  # width of the border between images in pixels
+
+      pad_value: .2  # intensity of the border pixels
+
+      upsampling_factor: 1  # the whole grid is upsampled by this factor
+
+      row_specs: ['H', 'S', 'D', 'V']
+
+      column_specs: ['W', 'C', 'B']
+
+      # Container visualizers always have the 'visualizers' argument. Its value has to be a list of visualizers
+
+      visualizers:
+
+        - IdentityVisualizer:
+            input: ['res_pred', C: ":"]
+            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+        - IdentityVisualizer:
+            input: ['res_tar', C: ":"]
+            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+        - IdentityVisualizer:
+            input: ['mask_quant', C: ":"]
+            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+        - IdentityVisualizer:
+            input: ['res_pred_masked', C: ":"]
+            value_range: [0, 0.34] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+        - IdentityVisualizer:
+            input: ['res_tar_masked', C: ":"]
+            value_range: [0, 0.34] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+  classes:
+    ImageGridVisualizer:
+      input_mapping:
+        global: [B: 0, D: 1] # the mapping specified in 'global' is applied to all keys
+
+      pad_width: 1  # width of the border between images in pixels
+
+      pad_value: .2  # intensity of the border pixels
+
+      upsampling_factor: 1  # the whole grid is upsampled by this factor
+
+      row_specs: ['H', 'S', 'D', 'V']
+
+      column_specs: ['W', 'C', 'B']
+
+      # Container visualizers always have the 'visualizers' argument. Its value has to be a list of visualizers
+
+      visualizers:
+        - IdentityVisualizer:
+            input: ['one', C: ":"]
+            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+        - IdentityVisualizer:
+            input: ['one_target', C: ":"]
+            value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+
+
+#    prediction:
+#      ImageGridVisualizer:
+#        input_mapping:
+#          global: [B: 0, D: 1] # the mapping specified in 'global' is applied to all keys
+#
+#        pad_width: 1  # width of the border between images in pixels
+#
+#        pad_value: .2  # intensity of the border pixels
+#
+#        upsampling_factor: 1  # the whole grid is upsampled by this factor
+#
+#        row_specs: ['H', 'S', 'D', 'V']
+#
+#        column_specs: ['W', 'C', 'B']
+#
+#        # Container visualizers always have the 'visualizers' argument. Its value has to be a list of visualizers
+#
+#        visualizers:
+#
+#          - IdentityVisualizer:
+#              input: ['pred_in_metric', C: ":"]
+#              value_range: [0, 1] # Scale such that 0 is white and 1 is black. If not specified, whole range is used.
+#
