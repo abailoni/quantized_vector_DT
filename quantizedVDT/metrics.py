@@ -83,6 +83,8 @@ class L1fromQuantized(Metric):
 
     def forward(self, prediction, target):
 
+        # log_image('pred_in_metric', prediction)
+        # log_image('newtest', prediction)
         prediction = prediction.cpu().detach().numpy()
         target = target.cpu().detach().numpy()
 
@@ -96,14 +98,23 @@ class L1fromQuantized(Metric):
             (target[self.n_classes*self.n_distances:],
              target[self.n_distances:self.n_classes*self.n_distances])))
 
-        if self.log:
-            for i in range(distances_pred.shape[0]):
-                log_image(f'predicted_distances_dir_{i}', np.pad(distances_pred[i, :1], pad_width=1, mode='symmetric'))
-                log_image(f'target_distances_dir_{i}', np.pad(distances_target[i, :1], pad_width=1, mode='symmetric'))
-                # the padding is used to create three channels for a rgb-image
+        log_image('distances_tar', torch.Tensor(distances_target[None]))
+        log_image('distances_pred', torch.Tensor(distances_pred[None]))
 
 
-        return np.mean(np.abs(distances_pred-distances_target))
+
+        # if self.log:
+        #     for i in range(distances_pred.shape[0]):
+        #         log_image(f'predicted_distances_dir_{i}', np.pad(distances_pred[i, :1], pad_width=1, mode='symmetric'))
+        #         log_image(f'target_distances_dir_{i}', np.pad(distances_target[i, :1], pad_width=1, mode='symmetric'))
+        # the padding is used to create three channels for a rgb-image
+
+
+
+        return np.mean(np.abs(distances_pred-distances_target))  # this is without masking, which is kinda bad
         # return self.l1.forward(distances_pred, distances_target)
+
+
+
 
 
