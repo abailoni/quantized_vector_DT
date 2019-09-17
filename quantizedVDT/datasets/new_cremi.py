@@ -17,6 +17,22 @@ from neurofire.transform.volume import RandomSlide
 from quantizedVDT.transforms import LabelToDirections, Clip, Multiply
 
 
+
+
+class CremiDatasetInference(RawVolume):
+
+    def __init__(self, name, **volume_config):
+        super(CremiDatasetInference, self).__init__(name=name, **volume_config)
+        self.transforms = self.get_additional_transforms()
+
+    def get_additional_transforms(self):
+        transforms = self.transforms if self.transforms is not None else Compose()
+        transforms.add(AsTorchBatch(3))
+        return transforms
+
+
+
+
 class CremiDataset(ZipReject):
     def __init__(self, name, volume_config, slicing_config,
                  defect_augmentation_config, master_config=None):
@@ -138,5 +154,16 @@ def get_cremi_loader(config):
     config = yaml2dict(config)
     loader_config = config.pop('loader_config')
     datasets = CremiDatasets.from_config(config)
+    loader = DataLoader(datasets, **loader_config)
+    return loader
+
+
+def get_inference_loader(config):
+
+    config = yaml2dict(config)
+    volume_config = config.get('volume_config')
+
+    loader_config = config.pop('loader_config')
+    datasets = CremiDatasetInference(config.get('name'), **volume_config)
     loader = DataLoader(datasets, **loader_config)
     return loader
