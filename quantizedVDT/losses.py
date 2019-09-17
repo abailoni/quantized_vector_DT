@@ -96,10 +96,17 @@ class L1andSDloss(nn.Module):
         self.log = log
         self.exclude_borders = exclude_borders
         self.max_dist = max_dist
+        self.log_counter = 0
 
 
     def forward(self, prediction, target):
         # shape of prediction: [batch, n_dir*n_channels*2, z, y, x]; e.g. [1, 64, 12, 324, 324]
+
+        if self.log_counter % 100 == 0:
+            log_now = True
+        else:
+            log_now = False
+        self.log_counter += 1
 
         # exclude the spatial borders of the volume due to lacking context for the network
         # Not protected against 'bad' slicing
@@ -107,6 +114,9 @@ class L1andSDloss(nn.Module):
             b = self.exclude_borders
             prediction = prediction[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
             target = target[..., b[0]:-(b[0]+1), b[1]:-(b[1]+1), b[2]:-(b[2]+1)]
+        if log_now:
+            log_image('target_unmasked', target)
+
         if self.exclude_borders == 'auto':
             mask_res = np.ones((prediction.shape[0], (self.n_channels-1)*self.n_directions, *prediction.shape[2:]))
             mask_class = np.ones((prediction.shape[0], self.n_directions*self.n_channels, *prediction.shape[2:]))
@@ -116,10 +126,15 @@ class L1andSDloss(nn.Module):
                 xslice = slice(xoffset-1, None) if xoffset < 0 else slice(None, xoffset+1)
                 yslice = slice(yoffset-1, None) if yoffset < 0 else slice(None, yoffset+1)
                 mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, yslice, :] = 0
-                mask_res[:, (self.n_channels-1)*i:
-                         (self.n_channels-1)*(i+1), :, yslice, :] = 0
-                mask_res[:, (self.n_channels - 1) * i:
-                         (self.n_channels-1)*(i+1), :, :, xslice] = 0
+                # This is wrong
+                # mask_res[:, (self.n_channels-1)*i:
+                #          (self.n_channels-1)*(i+1), :, yslice, :] = 0
+                # mask_res[:, (self.n_channels - 1) * i:
+                #          (self.n_channels-1)*(i+1), :, :, xslice] = 0
+                mask_res[:, i::self.n_directions, :, yslice, :] = 0
+                mask_res[:, i::self.n_directions, :, :, xslice] = 0
+
+
                 mask_class[:, self.n_channels*i:self.n_channels*(i+1), :, :, xslice] = 0
             mask_class = torch.Tensor(mask_class).cuda()
             mask_res = torch.Tensor(mask_res).cuda()
@@ -129,6 +144,11 @@ class L1andSDloss(nn.Module):
             target[:, self.n_directions*self.n_channels:] *= mask_class
             target[:, self.n_directions:self.n_directions*self.n_channels] *= mask_res
             # target[:, :-self.n_directions] = target[:, :-self.n_directions]*mask
+        if log_now:
+            log_image('mask_class', mask_class)
+            log_image('mask_res', mask_res)
+            log_image('pred', prediction)
+            log_image('target_masked', target)
 
         one = prediction[:, :self.n_directions*self.n_channels].reshape(
             (1, self.n_directions, self.n_channels, *prediction.shape[2:]))
@@ -138,13 +158,53 @@ class L1andSDloss(nn.Module):
             (1, self.n_directions, self.n_channels, *prediction.shape[2:]))
         one_target = one_target.permute(0, 2, 1, 3, 4, 5)
 
+
+        one[:, self.n_channels-1] *= -1
+        one[:, self.n_channels-1] += 1
+        one_target[:, self.n_channels-1] *= -1
+        one_target[:, self.n_channels-1] += 1
+        #
+        # one_new = one*1.
+        # one_new[:, self.n_channels-1] = 1-one[:, self.n_channels-1]
+
+
+        if log_now:
+            log_image('one', one)
+            log_image('one_target', one_target)
+            log_image('one_new', one)
+
+
         loss1 = self.sd(one, one_target)
+
+        one[:, self.n_channels-1] *= -1
+        one[:, self.n_channels-1] += 1
+
 
         res_pred = prediction[:, self.n_directions * self.n_channels:]
         res_tar = target[:, self.n_directions:self.n_directions * self.n_channels]
-        mask = target[:, self.n_directions * self.n_channels:-self.n_directions]
 
-        loss2 = self.l1(res_pred*mask, res_tar*mask)
+        # wrong
+        # mask_quant = target[:, self.n_directions * self.n_channels:-self.n_directions]
+
+        # mask_quant_int = target[:, self.n_directions * self.n_channels:]
+
+
+        mask_quant = torch.empty(res_tar.shape, device='cuda')
+        for i in range(self.n_directions):
+            mask_quant[:, i::self.n_directions] = target[:, self.n_directions * self.n_channels + i*(self.n_channels):
+                                                         self.n_directions * self.n_channels + (i+1)*(self.n_channels)-1]
+
+
+
+        loss2 = self.l1(res_pred*mask_quant, res_tar*mask_quant)
+        #
+        if log_now:
+            log_image('res_pred', res_pred)
+            log_image('res_tar', res_tar)
+            log_image('mask_quant', mask_quant)
+            log_image('res_pred_masked', res_pred*mask_quant)
+            log_image('res_tar_masked', res_tar*mask_quant)
+
 
         if self.log:
             log_scalar('SorensenDiceLoss', self.weights[0]*loss1)
@@ -175,6 +235,11 @@ class MaskedL1Loss(nn.L1Loss):
                 mask[:, i, :, yslice, :] = 0
                 mask[:, i, :, :, xslice] = 0
             self.mask = torch.Tensor(mask).cuda()
+        log_image('inp', input)
+        log_image('inp_masked', input*self.mask)
+        log_image('tar', target)
+        log_image('tar_masked', target*self.mask)
+
         return super().forward(input*self.mask, target*self.mask)
 
 
